@@ -10,9 +10,13 @@
 本MOD的所有实现均非官方功能，在使用过程中可能会出现不可预知的问题。本人不承担因此造成的任何损失。请谨慎使用。
 
 直接使用:
-先安装BepInEx x86到游戏目录(https://github.com/BepInEx/BepInEx)
-下载DLL文件：https://github.com/NothingNullNull/LOMSave/releases
-将LOMSave.dll拷贝到BepInEx/plugins目录下。
+  方法1：
+    下载Full.rar直接解压到游戏根目录(https://github.com/NothingNullNull/LOMSave/releases)
+  方法2：
+    先安装BepInEx x86到游戏目录(https://github.com/BepInEx/BepInEx)
+    下载DLL文件(https://github.com/NothingNullNull/LOMSave/releases)
+    将LOMSave.dll拷贝到BepInEx/plugins目录下。
+
 
 如何编译：
 
