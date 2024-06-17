@@ -1,29 +1,29 @@
-这是基于BepInEx开发的活侠传自由存档MOD
+# 活侠传自由存档MOD
 
-#功能说明#
+## 功能说明
 提供了在游戏故事情模式中任意位置存读档的功能。
 
-工作原理：
+### 工作原理
 保存剧情前的存档和剧情中的选择状态，读档后进行快速重播。
 
-警告：
+### 警告
 本MOD的所有实现均非官方功能，在使用过程中可能会出现不可预知的问题。本人不承担因此造成的任何损失。请谨慎使用。
 
-直接使用:
-  方法1：
-    下载Full.rar直接解压到游戏根目录(https://github.com/NothingNullNull/LOMSave/releases)
-  方法2：
-    先安装BepInEx x86到游戏目录(https://github.com/BepInEx/BepInEx)
-    下载DLL文件(https://github.com/NothingNullNull/LOMSave/releases)
-    将LOMSave.dll拷贝到BepInEx/plugins目录下。
+## 直接使用
+### 方法1
+下载 [Full.rar](https://github.com/NothingNullNull/LOMSave/releases) 直接解压到游戏根目录。
 
+### 方法2
+1. 先安装 BepInEx x86 到游戏目录 [BepInEx](https://github.com/BepInEx/BepInEx)。
+2. 下载 [DLL文件](https://github.com/NothingNullNull/LOMSave/releases)。
+3. 将 `LOMSave.dll` 拷贝到 `BepInEx/plugins` 目录下。
 
-如何编译：
+## 如何编译
 
 缺少的引用均位于：
-BepInEx\core目录(请自行安装BepInEx 86:https://github.com/BepInEx/BepInEx/releases)
-和
-LegendOfMortal\Mortal_Data\Managed目录(也就是游戏目录下)
+- `BepInEx\core` 目录（请自行安装 [BepInEx x86](https://github.com/BepInEx/BepInEx/releases)）
+- `LegendOfMortal\Mortal_Data\Managed` 目录（也就是游戏目录下）
 
-编译完成后的dll放置于BepInEx的plugins目录下即可运行。
-关于BepInEx的知识请查看https://github.com/BepInEx/BepInEx/
+编译完成后的dll放置于 `BepInEx` 的 `plugins` 目录下即可运行。
+
+关于 BepInEx 的知识请查看 [BepInEx](https://github.com/BepInEx/BepInEx/)。
