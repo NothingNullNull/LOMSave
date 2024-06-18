@@ -139,6 +139,7 @@ namespace LOMSave
             data.Scene = gameSave.CurrentScene;
             //if(curGameSave.CurrentScene == "Story")
             loading = 1;
+            fristSet = true;
         }
 
         public static string GetMd5Hash(string input)
@@ -279,14 +280,18 @@ namespace LOMSave
             }
         }
 
+        bool fristSet = true;
         /// <summary>
         /// 保存故事进行前的数据用于读档
         /// </summary>
         /// <param name="script"></param>
         public void SaveSafe(string script)
         {
-            if (script == data.LastScript)
+            if (fristSet)
+            {
+                fristSet = false;
                 return;
+            }
             data.RealLastScript = script;
 
             try
