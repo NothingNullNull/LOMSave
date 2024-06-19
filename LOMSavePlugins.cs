@@ -101,6 +101,8 @@ namespace LOMSave
         {
             var json = JsonConvert.SerializeObject(data);
             File.WriteAllText(file, json);
+            var json2 = JsonConvert.SerializeObject(gs);
+            File.WriteAllText(file + ".json", json2);
         }
 
         public void SetCurView(string name)
@@ -112,6 +114,7 @@ namespace LOMSave
 
         public bool IsLoading => loading == 1;
 
+        List<string> tempKeys = new List<string>();
         /// <summary>
         /// 加载记录故事选项的额外存档数据
         /// </summary>
@@ -141,6 +144,7 @@ namespace LOMSave
             //if(curGameSave.CurrentScene == "Story")
             loading = 1;
             fristSet = true;
+            tempKeys = new List<string>(data.KV.Keys);
         }
 
         public static string GetMd5Hash(string input)
@@ -196,8 +200,8 @@ namespace LOMSave
 
                 return "";
             }
-            data.KV.Remove(key);
-            if (data.KV.Count == 0)
+            tempKeys.Remove(key);
+            if (tempKeys.Count == 0)
             {
                 Time.timeScale = 1;
                 HideLoadScene();
@@ -733,12 +737,12 @@ namespace LOMSave
         {
             var txt = luatxt;// File.ReadAllText("D:/LUA.TXT");
             LuaManager.Instance.ExecuteScript(txt);
-            var bglua = $@"getvar(flowcharts.view, ""ViewName"").value = ""{LOMSavePlugins.Ins.data.CurView}""
-runblock(flowcharts.view, ""view"")";
-            LuaManager.Instance.ExecuteScript(bglua);
+            Debug.Log("[SSS]CurView:" + LOMSavePlugins.Ins.data.CurView);
+          
             return true;
         }
 
+      
         /// <summary>
         /// 脚本初始化完成后重现存档时候的现场
         /// </summary>
@@ -752,12 +756,19 @@ runblock(flowcharts.view, ""view"")";
             var EnvSound = LOMSavePlugins.Ins.GetValue("EnvSound", false);
             if (!string.IsNullOrEmpty(music))
             {
-                LuaManager.Instance.ExecuteScript($"luamanager.PlayMusic(\"{music}\")");
+                LuaManager.Instance.PlayMusic(music);
+                //LuaManager.Instance.ExecuteScript($"luamanager.PlayMusic(\"{music}\")");
             }
             if (!string.IsNullOrEmpty(EnvSound))
             {
-                LuaManager.Instance.ExecuteScript($"luamanager.PlayEnvSound(\"{EnvSound}\")");
+                LuaManager.Instance.PlayMusic(EnvSound);
+                //LuaManager.Instance.ExecuteScript($"luamanager.PlayEnvSound(\"{EnvSound}\")");
             }
+            var flow = GameObject.FindObjectOfType<ViewFlowchartController>();
+            flow.View(LOMSavePlugins.Ins.data.CurView);
+          /*  var bglua = $@"getvar(flowcharts.view, ""ViewName"").value = ""{LOMSavePlugins.Ins.data.CurView}""
+runblock(flowcharts.view, ""view"")";
+            LuaManager.Instance.ExecuteScript(bglua);*/
 
 
         }
@@ -834,7 +845,7 @@ if not SSSSD_LUA then
 	oldchoose = choose
 
 	function new_choose(options)
-		--print(""new_choose!!!!!!!!!!!!!"",options)
+		print(""new_choose!!!!!!!!!!!!!"",options)
 		local optxt = """"
 		for k,v in pairs(options) do
 			optxt = optxt ..""&""..v
