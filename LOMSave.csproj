@@ -31,22 +31,31 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="0Harmony">
+    <Reference Include="0Harmony, Version=2.9.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\0Harmony.dll</HintPath>
     </Reference>
-    <Reference Include="BepInEx">
-      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\BepInEx.dll</HintPath>
+    <Reference Include="BepInEx.Core">
+      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\BepInEx.Core.dll</HintPath>
     </Reference>
-    <Reference Include="BepInEx.Harmony">
-      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\BepInEx.Harmony.dll</HintPath>
+    <Reference Include="BepInEx.Unity">
+      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\BepInEx.Unity.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Mono">
+      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\BepInEx\core\BepInEx.Unity.Mono.dll</HintPath>
     </Reference>
     <Reference Include="Fungus">
       <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\Mortal_Data\Managed\Fungus.dll</HintPath>
     </Reference>
-    <Reference Include="Mortal.Core">
+    <Reference Include="Mortal.Core, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\Mortal_Data\Managed\Mortal.Core.dll</HintPath>
     </Reference>
-    <Reference Include="Mortal.Story">
+    <Reference Include="Mortal.Free">
+      <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\Mortal_Data\Managed\Mortal.Free.dll</HintPath>
+    </Reference>
+    <Reference Include="Mortal.Story, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\SteamLibrary\steamapps\common\LegendOfMortal\Mortal_Data\Managed\Mortal.Story.dll</HintPath>
     </Reference>
     <Reference Include="netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51" />

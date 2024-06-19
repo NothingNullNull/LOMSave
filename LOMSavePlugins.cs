@@ -1,4 +1,5 @@
 ﻿using BepInEx;
+using BepInEx.Unity.Mono;
 using Fungus;
 using HarmonyLib;
 using MoonSharp.Interpreter;
@@ -39,21 +40,21 @@ namespace LOMSave
         void Update()
         {
 
-         /*   var key = new BepInEx.Configuration.KeyboardShortcut(KeyCode.F11);
+            /*   var key = new BepInEx.Configuration.KeyboardShortcut(KeyCode.F11);
 
-            if (key.IsUp())
-            {
-                Debug.Log("||DO LUA||");
-                try
-                {
-                    var txt = File.ReadAllText("D:/LUA.TXT");
-                    LuaManager.Instance.ExecuteScript(txt);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError(e.ToString());
-                }
-            }*/
+               if (key.IsUp())
+               {
+                   Debug.Log("||DO LUA||");
+                   try
+                   {
+                       var txt = File.ReadAllText("D:/LUA.TXT");
+                       LuaManager.Instance.ExecuteScript(txt);
+                   }
+                   catch (Exception e)
+                   {
+                       Debug.LogError(e.ToString());
+                   }
+               }*/
 
             if (IsLoading && data.NeedSpeed)
             {
@@ -173,6 +174,7 @@ namespace LOMSave
 
         public string GetValue(string k, bool withscrip = true)
         {
+            Debug.Log("[SSS]GetValue:" + k);
             var scrip = PlayerStatManagerData.Instance.CurrentStoryScript;
             var key = scrip + "|" + k;
             if (!withscrip)
@@ -194,12 +196,19 @@ namespace LOMSave
 
                 return "";
             }
+            data.KV.Remove(key);
+            if (data.KV.Count == 0)
+            {
+                Time.timeScale = 1;
+                HideLoadScene();
+            }
             return v;
         }
 
         bool showLoading = false;
         public void ShowLoadScene()
         {
+            Debug.Log("[SSS]ShowLoadScene");
             SceneManager.LoadScene("Loading1", new LoadSceneParameters(LoadSceneMode.Additive));
             showLoading = true;
 
@@ -210,17 +219,26 @@ namespace LOMSave
         {
             if (!showLoading)
                 return;
-           
-            var scene = SceneManager.GetSceneByName("Loading1");
-            if (scene.IsValid())
+            bool close = false;
+            for (var i = 0; i < SceneManager.sceneCount; i++)
             {
-                SceneManager.UnloadSceneAsync(scene);
-                showLoading = false;
-                keepCloseLoad = false;
+                var scene = SceneManager.GetSceneAt(i);
+                if(scene.name == "Loading1")
+                {
+                    if (scene.IsValid())
+                    {
+                        SceneManager.UnloadSceneAsync(scene);
+                        showLoading = false;
+                        keepCloseLoad = false;
+                        close = true;
+                        Debug.Log("[SSS]HideLoadScene 1");
+                    }
+                }
             }
-            else
+            if (close == false)
             {
                 keepCloseLoad = true;
+                Debug.Log("[SSS]HideLoadScene 2");
             }
         }
 
@@ -444,7 +462,7 @@ namespace LOMSave
             return true;
         }
 
-      
+
         /// <summary>
         /// 关闭锁存档的功能
         /// </summary>
