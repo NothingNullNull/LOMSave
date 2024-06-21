@@ -91,7 +91,7 @@ namespace LOMSave
             public GameSave lastSave;
             public Dictionary<string, PortraitData> portrait = new Dictionary<string, PortraitData>();
 
-            public bool NeedSpeed => portrait?.Count > 0 && Scene != "Free";
+            public bool NeedSpeed => portrait?.Count > 0 && Scene != "Free"  && Scene != "Battle";
 
         }
 
@@ -141,6 +141,7 @@ namespace LOMSave
             if (data.portrait == null)
                 data.portrait = new Dictionary<string, SData.PortraitData>();
             data.Scene = gameSave.CurrentScene;
+            Debug.Log("[SSS]Scene:"+data.Scene);
             //if(curGameSave.CurrentScene == "Story")
             loading = 1;
             fristSet = true;
