@@ -135,7 +135,7 @@ namespace LOMSave2
         public static bool InputLocked => _lockedEventSystem != null;
 
         // ---- config ----
-        public static float ReplayTimeScale = 12f;
+        public static float ReplayTimeScale = 50f;
         public static bool ShowOverlay = true;
 
         // ---- UI hook (set by plugin; used by patches that run outside MonoBehaviour) ----

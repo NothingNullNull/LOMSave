@@ -6,7 +6,7 @@
 
 ## 下载与安装
 
-下载 [2.0.0 安装包](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/LOMSave-v2.0.0.zip)，或 [独立 LOMSave2.dll](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/LOMSave2.dll)。校验值见 [SHA256SUMS.txt](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/SHA256SUMS.txt)，发布说明见 [GitHub Release](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.0)。
+下载 [2.0.1 安装包](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/LOMSave-v2.0.1.zip)，或 [独立 LOMSave2.dll](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/LOMSave2.dll)。校验值见 [SHA256SUMS.txt](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/SHA256SUMS.txt)，发布说明见 [GitHub Release](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.1)。
 
 1. 关闭游戏并备份完整存档目录。
 2. 安装 **BepInEx 5.x x86（32 位、Mono）** 到游戏根目录；本次验证环境为 5.4.23.5。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases)
@@ -47,10 +47,12 @@
 | 配置 | 默认值 / 用途 |
 | --- | --- |
 | `Hotkeys.QuickSave` / `QuickLoad` / `Verify` | F5 / F9 / F8 |
-| `Replay.TimeScale` | 12，回放速度 |
-| `Replay.ShowOverlay` | true，回放遮罩 |
+| `Replay.TimeScale` | 50，回放速度倍率，可自行调整 |
+| `Replay.ShowOverlay` | true，回放时用不透明黑幕遮住画面，保留进度提示 |
 | `Verification.AutoCheck` | true，回放完成后自动检查 |
 | `Verification.ReportDirectory` | 验证报告目录 |
+
+更新 MOD 会保留已有配置。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段会显示游戏界面，完成操作后恢复遮罩。
 
 ## 存档兼容与限制
 

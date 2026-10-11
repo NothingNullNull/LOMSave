@@ -14,7 +14,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.0";
+        public const string PluginVersion = "2.0.1";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
@@ -35,7 +35,7 @@ namespace LOMSave2
             LomsRuntime.Log = Logger;
             _quickSaveKey = Config.Bind("Hotkeys", "QuickSave", new KeyboardShortcut(KeyCode.F5), "快速存档");
             _quickLoadKey = Config.Bind("Hotkeys", "QuickLoad", new KeyboardShortcut(KeyCode.F9), "快速读档");
-            _replayTimeScale = Config.Bind("Replay", "TimeScale", 12f, "回放期间的 timeScale");
+            _replayTimeScale = Config.Bind("Replay", "TimeScale", 50f, "回放速度倍率");
             _showOverlay = Config.Bind("Replay", "ShowOverlay", true, "回放期间显示遮罩");
             _verifyKey = Config.Bind("Hotkeys", "Verify", new KeyboardShortcut(KeyCode.F8), "对比读档后的属性和状态");
             _autoVerify = Config.Bind("Verification", "AutoCheck", true, "回放结束后自动对比保存时和当前状态");
@@ -209,7 +209,7 @@ namespace LOMSave2
                     float w = Screen.width;
                     float h = Screen.height;
                     var prev = GUI.color;
-                    GUI.color = new Color(0f, 0f, 0f, 0.65f);
+                    GUI.color = Color.black;
                     GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.whiteTexture);
                     GUI.color = prev;
                     string txt = $"回放中… ({LomsRuntime.Cursor}/{LomsRuntime.Events.Count})";
