@@ -6,7 +6,7 @@
 
 ## 下载与安装
 
-下载 [2.0.0 安装包](https://github.com/NothingNullNull/LOMSave/raw/refs/heads/master/release/LOMSave-v2.0.0.zip)，或 [独立 LOMSave2.dll](https://github.com/NothingNullNull/LOMSave/raw/refs/heads/master/release/LOMSave2.dll)。校验值见 [SHA256SUMS.txt](release/SHA256SUMS.txt)。
+下载 [2.0.0 安装包](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/LOMSave-v2.0.0.zip)，或 [独立 LOMSave2.dll](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/LOMSave2.dll)。校验值见 [SHA256SUMS.txt](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.0/SHA256SUMS.txt)，发布说明见 [GitHub Release](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.0)。
 
 1. 关闭游戏并备份完整存档目录。
 2. 安装 **BepInEx 5.x x86（32 位、Mono）** 到游戏根目录；本次验证环境为 5.4.23.5。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases)

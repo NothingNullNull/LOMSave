@@ -1,0 +1,79 @@
+name: Publish MOD release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - release/**
+      - .github/workflows/publish-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-mod-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'NothingNullNull/LOMSave' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify packaged files and publish GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lomsave-release"
+          cd "$RUNNER_TEMP/lomsave-release"
+
+          fetch_file() {
+            gh api "repos/$GITHUB_REPOSITORY/contents/$1?ref=$GITHUB_SHA" \
+              --jq .content | base64 --decode > "$2"
+          }
+          fetch_file LOMSave2/LOMSave2Plugin.cs Plugin.cs
+          version="$(python3 -c 'import pathlib,re; print(re.search(r"PluginVersion = \"(\d+\.\d+\.\d+)\"", pathlib.Path("Plugin.cs").read_text()).group(1))')"
+          tag="v$version"
+          archive="LOMSave-v$version.zip"
+          for file in "$archive" LOMSave2.dll SHA256SUMS.txt; do
+            fetch_file "release/$file" "$file"
+          done
+          sha256sum --check SHA256SUMS.txt
+          fetch_file CHANGELOG.md CHANGELOG.md
+          python3 - "$version" <<'PY'
+          import pathlib, sys
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          notes = changelog.split("\n## " + sys.argv[1] + "\n", 1)[1].split("\n## ", 1)[0].strip()
+          notes += "\n\n安装要求：BepInEx 5.x x86（Mono）；不要与旧 LOMSave.dll 同时加载。"
+          notes += "\n\n安装与兼容性说明：[README](https://github.com/NothingNullNull/LOMSave#readme)。\n"
+          pathlib.Path("RELEASE_NOTES.md").write_text(notes, encoding="utf-8")
+          PY
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            existing_sha="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+              echo "Release tag already belongs to another commit; use a new version."
+              exit 1
+            fi
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft --title "LOMSave $version" \
+              --notes-file RELEASE_NOTES.md
+          fi
+          for file in "$archive" LOMSave2.dll SHA256SUMS.txt; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -Fxq -- "$file"; then
+              mkdir -p existing
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$file" --dir existing
+              cmp "$file" "existing/$file"
+            else
+              gh release upload "$tag" "$file" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --latest --notes-file RELEASE_NOTES.md
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,tagName,isDraft,assets
