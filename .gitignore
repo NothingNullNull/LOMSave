@@ -1,3 +1,25 @@
-/bin
-/obj
-/.vs
+# Build and local investigation outputs
+**/bin/
+**/obj/
+.vs/
+.idea/
+.work/
+dist/
+__pycache__/
+*.pyc
+*.pdb
+*.user
+*.suo
+
+# Game resources, decompiled code and player data stay local
+/assets/
+/decomp/
+/BepInEx_x86.zip
+*.dat
+*.loms
+*.ss
+*.ss.json
+*.cfg
+*.log
+*.tmp
+/verification/
