@@ -1,6 +1,6 @@
 # 活侠传自由存档 MOD · 2.0
 
-在剧情和歇息场景保存当前进度，读档时从剧情边界快速回放到保存位置。F5/F9 与游戏系统的当前存档槽共用，读档后可检查属性和状态是否一致。
+通过游戏自带的存档/读档界面，在剧情和歇息场景保存当前进度，读档时从剧情边界快速回放到保存位置。也可用 F5/F9 快捷操作，读档后可检查属性和状态是否一致。
 
 交流 QQ 群：398012894。
 
@@ -12,11 +12,15 @@
 2. 安装 **BepInEx 5.x x86（32 位、Mono）** 到游戏根目录；本次验证环境为 5.4.23.5。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases)
 3. 若装过旧版 MOD，移走 `BepInEx/plugins` 下的旧 `LOMSave.dll`；避免同时加载两个实现。旧整合包使用 BepInEx 6，应先按官方方式切换加载器，不能混用 5/6 的核心文件。
 4. 将安装包解压到游戏根目录，最终 DLL 路径为 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。独立 DLL 也放到此处。
-5. 重启游戏，在存档菜单选定一个槽位保存，然后使用快捷键。
+5. 重启游戏，直接通过游戏自带的存档/读档界面使用；需要快捷操作时，也可使用下方快捷键。
 
 安装包只包含本 MOD 和说明，不包含 BepInEx、游戏程序集、游戏资源或玩家存档。
 
 ## 使用方式
+
+**不使用快捷键也能正常存读档。** 打开游戏自带的存档界面，选择槽位保存；需要读取时，在读档界面选择对应存档即可。剧情和歇息场景的普通保存同样记录精确回放资料与验证基准，普通读档同样自动回放并验证。
+
+快捷键只是便捷入口，与游戏的存读档共用同一套机制。F5/F9 操作系统当前槽位；首次还没有当前槽位时，先通过游戏存档菜单选择一个槽位保存。
 
 | 快捷键 | 操作 |
 | --- | --- |
@@ -61,10 +65,11 @@
 
 ## 从源码编译
 
-需要 .NET SDK、本地游戏与 BepInEx 5 x86。依赖程序集从本地安装目录读取，不随仓库分发。
+需要 .NET SDK、本地游戏与 BepInEx 5 x86。依赖程序集从游戏安装目录读取，不随仓库分发。以下命令在仓库根目录执行，将占位符替换为实际游戏安装目录。
 
 ```powershell
-dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false '-p:GameDir=E:\SteamLibrary\steamapps\common\LegendOfMortal'
+$gameDir = '<游戏安装目录的完整路径>'
+dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false "-p:GameDir=$gameDir"
 ```
 
 输出：`LOMSave2/bin/Release/LOMSave2.dll`。省略 `-p:Deploy=false` 会将 DLL 复制到指定游戏目录；仅检查编译时保留该参数。
@@ -73,8 +78,9 @@ dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false '-p:GameDir=E
 
 ```powershell
 python -m pip install -r .\tools\requirements.txt
-.\tests\Run-Tests.ps1 -GameDir 'E:\SteamLibrary\steamapps\common\LegendOfMortal'
-.\tools\Build-Release.ps1 -GameDir 'E:\SteamLibrary\steamapps\common\LegendOfMortal'
+$gameDir = '<游戏安装目录的完整路径>'
+.\tests\Run-Tests.ps1 -GameDir $gameDir
+.\tools\Build-Release.ps1 -GameDir $gameDir
 ```
 
 测试缺少剧情资料时会从本地游戏提取两个用例，提取文件保留在被忽略的 `assets/story/`。发布包默认输出到 `dist/`，构建不部署到游戏。测试范围和限制见 [tests/README.md](tests/README.md)。

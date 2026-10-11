@@ -42,6 +42,11 @@ jobs:
             fetch_file "release/$file" "$file"
           done
           sha256sum --check SHA256SUMS.txt
+          python3 - "$archive" <<'PY'
+          import pathlib, sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as package:
+              assert package.read("BepInEx/plugins/LOMSave2/LOMSave2.dll") == pathlib.Path("LOMSave2.dll").read_bytes(), "Packaged DLL differs from standalone DLL"
+          PY
           fetch_file CHANGELOG.md CHANGELOG.md
           python3 - "$version" <<'PY'
           import pathlib, sys
@@ -52,12 +57,26 @@ jobs:
           pathlib.Path("RELEASE_NOTES.md").write_text(notes, encoding="utf-8")
           PY
 
+          existing_release=false
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            existing_sha="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
-            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
-              echo "Release tag already belongs to another commit; use a new version."
+            existing_release=true
+            if [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.immutable // false')" == true ]]; then
+              echo "This release is immutable; publish a new version instead."
               exit 1
             fi
+            existing_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)"
+            old_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$existing_sha" --jq .tree.sha)"
+            new_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)"
+            old_mod="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$old_tree" --jq '.tree[] | select(.path == "LOMSave2") | .sha')"
+            new_mod="$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$new_tree" --jq '.tree[] | select(.path == "LOMSave2") | .sha')"
+            if [[ -z "$old_mod" || "$old_mod" != "$new_mod" ]]; then
+              echo "MOD source changed; publish a new version instead."
+              exit 1
+            fi
+            mkdir -p baseline
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern LOMSave2.dll --dir baseline
+            cmp LOMSave2.dll baseline/LOMSave2.dll
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --draft --title "LOMSave $version" \
@@ -69,11 +88,21 @@ jobs:
               mkdir -p existing
               gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
                 --pattern "$file" --dir existing
-              cmp "$file" "existing/$file"
+              if ! cmp -s "$file" "existing/$file"; then
+                if [[ "$file" == LOMSave2.dll ]]; then
+                  echo "Published DLL differs; publish a new version instead."
+                  exit 1
+                fi
+                gh release upload "$tag" "$file" --repo "$GITHUB_REPOSITORY" --clobber
+              fi
             else
               gh release upload "$tag" "$file" --repo "$GITHUB_REPOSITORY"
             fi
           done
+          if [[ "$existing_release" == true && "$existing_sha" != "$GITHUB_SHA" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
+              -f sha="$GITHUB_SHA" -F force=false
+          fi
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-            --draft=false --latest --notes-file RELEASE_NOTES.md
+            --draft=false --latest --target "$GITHUB_SHA" --notes-file RELEASE_NOTES.md
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,tagName,isDraft,assets

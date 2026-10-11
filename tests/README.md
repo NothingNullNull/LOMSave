@@ -1,10 +1,11 @@
 # LOMSave 2.0 自动检查
 
-在项目根目录执行：
+在仓库根目录执行，将占位符替换为实际游戏安装目录：
 
 ```powershell
 python -m pip install -r .\tools\requirements.txt
-.\tests\Run-Tests.ps1 -GameDir 'E:\SteamLibrary\steamapps\common\LegendOfMortal'
+$gameDir = '<游戏安装目录的完整路径>'
+.\tests\Run-Tests.ps1 -GameDir $gameDir
 ```
 
 `-Python` 可指定 Python 可执行文件。需要 .NET SDK、本地游戏程序集和 BepInEx 5 x86；测试构建始终禁用自动部署，不读取或修改玩家存档。
@@ -12,10 +13,11 @@ python -m pip install -r .\tools\requirements.txt
 缺少剧情资料时，入口脚本从本地游戏提取 `back_02_501`、`ch2_4_5_3` 到 `assets/story/`，不分发游戏脚本。游戏更新后可手动重新提取：
 
 ```powershell
-python .\tools\Extract-TestStories.py --game-dir 'E:\SteamLibrary\steamapps\common\LegendOfMortal'
+$gameDir = '<游戏安装目录的完整路径>'
+python .\tools\Extract-TestStories.py --game-dir $gameDir
 ```
 
-当前基线为 43 项通过、31 个补丁方法目标及参数检查。测试资料与 `results.txt` 位于 `.work/regression-*/`。
+当前基线为 43 项通过、31 个补丁方法目标及参数检查。测试入口会输出本次测试资料与 `results.txt` 的位置。
 
 ## 覆盖范围
 
@@ -34,4 +36,4 @@ python .\tools\Extract-TestStories.py --game-dir 'E:\SteamLibrary\steamapps\comm
 
 `ch2_4_5_3` 边界用例截取前 81 行。更新脚本后若结构改变，应重新选取有效边界，不能直接放宽断言或把用例失效当成游戏兼容性结论。
 
-实机检查见 [游戏更新兼容性检查清单](../游戏更新兼容性检查清单.md)。历史运行证据留在本地 `.work/`，不随仓库分发；当前已知随机状态四项差异没有被测试或报告隐藏。
+实机检查见 [游戏更新兼容性检查清单](../游戏更新兼容性检查清单.md)。当前已知随机状态四项差异没有被测试或报告隐藏。
