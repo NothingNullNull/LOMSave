@@ -1,6 +1,7 @@
-param(
+﻿param(
     [string]$GameDir = 'E:\SteamLibrary\steamapps\common\LegendOfMortal',
-    [string]$OutputDir
+    [string]$OutputDir,
+    [string]$Python = 'python'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
@@ -26,11 +27,18 @@ $publishedDll = Join-Path $outputRoot 'LOMSave2.dll'
 Copy-Item -LiteralPath $dll -Destination $publishedDll -Force
 $archive = Join-Path $outputRoot "LOMSave-v$version.zip"
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
-$hashLines = foreach ($file in @($publishedDll, $archive)) {
+$bundle = Join-Path $outputRoot "LOMSave-v$version-OneClick.zip"
+& $Python (Join-Path $PSScriptRoot 'package_bundle.py') build --mod-package $archive --output $bundle
+if ($LASTEXITCODE -ne 0) { throw '一键整合包构建失败，不能发布。' }
+$hashLines = foreach ($file in @($publishedDll, $archive, $bundle)) {
     $digest = Get-FileHash -LiteralPath $file -Algorithm SHA256
     '{0}  {1}' -f $digest.Hash.ToLowerInvariant(), [System.IO.Path]::GetFileName($file)
 }
-$hashLines | Set-Content -LiteralPath (Join-Path $outputRoot 'SHA256SUMS.txt') -Encoding UTF8
+[System.IO.File]::WriteAllText((Join-Path $outputRoot 'SHA256SUMS.txt'),
+    (($hashLines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+& $Python (Join-Path $PSScriptRoot 'package_bundle.py') verify --release-dir $outputRoot --version $version
+if ($LASTEXITCODE -ne 0) { throw '发布包检查失败，不能发布。' }
 Write-Host "发布包：$archive"
+Write-Host "一键整合包：$bundle"
 Write-Host "独立 DLL：$publishedDll"
 Write-Host '构建未修改游戏安装目录。'

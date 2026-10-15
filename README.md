@@ -2,19 +2,26 @@
 
 通过游戏自带的存档/读档界面，在剧情和歇息场景保存当前进度，读档时从剧情边界快速回放到保存位置。也可用 F5/F9 快捷操作，读档后可检查属性和状态是否一致。
 
-交流 QQ 群：398012894。
-
 ## 下载与安装
 
 当前版本为 **2.0.2**，适配游戏 `release_1.0.6000.2`。下载见 [GitHub Releases](https://github.com/NothingNullNull/LOMSave/releases)；旧 2.0.1 不适用于本次游戏更新。
 
-1. 关闭游戏并备份完整存档目录。
-2. 新版游戏已改为 **64 位 Mono**，安装 **BepInEx 5.4.23.5 Windows x64** 到游戏根目录。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 中选择 `BepInEx_win_x64_5.4.23.5.zip`。从旧版升级时，备份后覆盖对应加载器文件，包括根目录的 `winhttp.dll`，保留自己的配置和插件；仅更新 MOD DLL 无法修复旧 x86 加载器。
-3. 若装过旧版 MOD，移走 `BepInEx/plugins` 下的旧 `LOMSave.dll`；避免同时加载两个实现。旧整合包使用 BepInEx 6，应先按官方方式切换加载器，不能混用 5/6 的核心文件。
-4. 将安装包解压到游戏根目录，最终 DLL 路径为 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。独立 DLL 也放到此处。
-5. 重启游戏，直接通过游戏自带的存档/读档界面使用；需要快捷操作时，也可使用下方快捷键。
+### 一键整合包（推荐）
 
-安装包只包含本 MOD 和说明，不包含 BepInEx、游戏程序集、游戏资源或玩家存档。
+1. 关闭游戏并备份完整存档目录。
+2. 下载 `LOMSave-v2.0.2-OneClick.zip`，已包含 **BepInEx 5.4.23.5 Windows x64** 和本 MOD。
+3. 将 ZIP 内的全部内容直接解压覆盖到游戏根目录（`Mortal.exe` 所在文件夹），不要额外套一层文件夹。
+4. 启动游戏，通过游戏自带的存档/读档界面使用，也可使用下方快捷键。
+
+解压后，`winhttp.dll` 与 `Mortal.exe` 同级，MOD 位于 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。无需运行安装程序；整合包不附带配置和玩家存档。
+
+**旧版升级：** 移走 `BepInEx/plugins` 下的旧 `LOMSave.dll`，若其他位置还放有 `LOMSave2.dll`，也只保留上述路径的一份。原 1.x 整合包使用 BepInEx 6，需先备份并移走旧 `BepInEx/core`，再解压整合包，避免混用 5/6 核心文件；保留自己的 `config` 和其他插件。从旧 x86 加载器升级时必须覆盖根目录的 `winhttp.dll`，仅替换 MOD DLL 不够。
+
+### 已安装 BepInEx 的用户
+
+确认加载器为 **BepInEx 5.4.23.5 Windows x64（Mono）** 后，可下载普通包 `LOMSave-v2.0.2.zip` 解压到游戏根目录，或将独立 `LOMSave2.dll` 放入上述插件目录。需要单独安装加载器时，前往 [BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 选择 `BepInEx_win_x64_5.4.23.5.zip`。
+
+每次发布均提供一键整合包、普通 MOD 包、独立 DLL 和 `SHA256SUMS.txt`。普通包只含 MOD 和说明；整合包另含 BepInEx、第三方许可及相应源码。两种包均不包含游戏程序集、游戏资源或玩家存档。
 
 ## 使用方式
 
@@ -88,6 +95,6 @@ $gameDir = '<游戏安装目录的完整路径>'
 .\tools\Build-Release.ps1 -GameDir $gameDir
 ```
 
-测试缺少剧情资料时会从本地游戏提取两个用例，提取文件保留在被忽略的 `assets/story/`。发布包默认输出到 `dist/`，构建不部署到游戏。测试范围和限制见 [tests/README.md](tests/README.md)。
+测试缺少剧情资料时会从本地游戏提取两个用例，提取文件保留在被忽略的 `assets/story/`。发布包默认输出到 `dist/`，构建不部署到游戏。构建时自动生成两种 ZIP、独立 DLL 和校验文件；首次会下载并校验官方 BepInEx 与 Doorstop 源码，缓存保留在 `.work/bundle-cache/`，后续可离线复用。将全部产物同步至 `release/` 后，发布流程会校验并上传两种包，缺少整合包时不会发布。测试范围和限制见 [tests/README.md](tests/README.md)。
 
 源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。版本说明见 [CHANGELOG.md](CHANGELOG.md)。

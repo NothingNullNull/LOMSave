@@ -33,6 +33,17 @@ python .\tools\Extract-TestStories.py --game-dir $gameDir
 
 历史格式测试使用 `fixtures/format2/LOMSave2.dll` 和 `fixtures/format3/LOMSave2.dll`，在独立进程中生成合成测试档；这些 DLL 是历史 MOD 构建产物，不是游戏程序集，也不应安装到游戏。
 
+## 发布包检查
+
+执行 `tools/Build-Release.ps1` 时自动检查两种包内 DLL、整合包根目录结构、官方 BepInEx 全部文件、第三方许可与源码及发布校验文件；失败会阻止发布。
+
+```powershell
+python .\tools\package_bundle.py verify --release-dir .\dist --version 2.0.2
+python .\tests\test_release_package.py --release-dir .\dist --version 2.0.2
+```
+
+将版本号替换为本次发布版本。发布包测试在项目 `.work/` 内模拟解压覆盖，确认已有配置、其他插件和存档标记保持原样；同时检查缺包、缺少校验项、错误组件、重复 MOD、个人文件和多余外层目录会被拒绝。此检查不代替实际游戏启动验证。
+
 ## 限制
 
 独立 CLR 无法执行 Unity 内部 ECall，测试中的引擎交互使用替身，不能证明实际 Harmony 安装、场景生命周期、输入或界面正常。MoonSharp 初始化时可能输出 UnityAssetsScriptLoader 的 SecurityException；最终以各项结果和退出码判断，不能把该信息当成游戏实机日志。

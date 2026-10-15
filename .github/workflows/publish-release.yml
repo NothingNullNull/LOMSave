@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - release/**
+      - tools/package_bundle.py
+      - tools/bundle/**
       - .github/workflows/publish-release.yml
   workflow_dispatch:
 
@@ -31,28 +33,29 @@ jobs:
           cd "$RUNNER_TEMP/lomsave-release"
 
           fetch_file() {
-            gh api "repos/$GITHUB_REPOSITORY/contents/$1?ref=$GITHUB_SHA" \
-              --jq .content | base64 --decode > "$2"
+            gh api -H 'Accept: application/vnd.github.raw+json' \
+              "repos/$GITHUB_REPOSITORY/contents/$1?ref=$GITHUB_SHA" > "$2"
           }
           fetch_file LOMSave2/LOMSave2Plugin.cs Plugin.cs
           version="$(python3 -c 'import pathlib,re; print(re.search(r"PluginVersion = \"(\d+\.\d+\.\d+)\"", pathlib.Path("Plugin.cs").read_text()).group(1))')"
           tag="v$version"
           archive="LOMSave-v$version.zip"
-          for file in "$archive" LOMSave2.dll SHA256SUMS.txt; do
+          bundle="LOMSave-v$version-OneClick.zip"
+          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
             fetch_file "release/$file" "$file"
           done
           sha256sum --check SHA256SUMS.txt
-          python3 - "$archive" <<'PY'
-          import pathlib, sys, zipfile
-          with zipfile.ZipFile(sys.argv[1]) as package:
-              assert package.read("BepInEx/plugins/LOMSave2/LOMSave2.dll") == pathlib.Path("LOMSave2.dll").read_bytes(), "Packaged DLL differs from standalone DLL"
-          PY
+          mkdir -p tools/bundle
+          fetch_file tools/package_bundle.py tools/package_bundle.py
+          fetch_file tools/bundle/components.json tools/bundle/components.json
+          python3 tools/package_bundle.py verify --release-dir . --version "$version"
           fetch_file CHANGELOG.md CHANGELOG.md
           python3 - "$version" <<'PY'
           import pathlib, sys
           changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
           notes = changelog.split("\n## " + sys.argv[1] + "\n", 1)[1].split("\n## ", 1)[0].strip()
-          notes += "\n\n安装要求：BepInEx 5.4.23.5 Windows x64（Mono）。新版游戏已改为 64 位，从旧 x86 加载器升级时需同时更新加载器（含 winhttp.dll），不能只替换 MOD DLL；不要与旧 LOMSave.dll 同时加载。"
+          notes += f"\n\n推荐下载 `LOMSave-v{sys.argv[1]}-OneClick.zip`，内含 BepInEx 5.4.23.5 Windows x64；关闭游戏后直接将全部内容解压覆盖到游戏根目录（Mortal.exe 所在文件夹），无需运行安装程序。"
+          notes += "\n\n已安装对应加载器的用户可选普通 MOD 包或独立 DLL。旧 BepInEx 6 用户先备份并移走旧 core 目录，避免混用核心文件；移走旧 LOMSave.dll，只保留一份 LOMSave2.dll。从旧 x86 加载器升级时须同时覆盖 winhttp.dll。"
           notes += "\n\n安装与兼容性说明：[README](https://github.com/NothingNullNull/LOMSave#readme)。\n"
           pathlib.Path("RELEASE_NOTES.md").write_text(notes, encoding="utf-8")
           PY
@@ -82,7 +85,7 @@ jobs:
               --target "$GITHUB_SHA" --draft --title "LOMSave $version" \
               --notes-file RELEASE_NOTES.md
           fi
-          for file in "$archive" LOMSave2.dll SHA256SUMS.txt; do
+          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
               --jq '.assets[].name' | grep -Fxq -- "$file"; then
               mkdir -p existing
