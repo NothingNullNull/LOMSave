@@ -33,8 +33,11 @@ jobs:
           cd "$RUNNER_TEMP/lomsave-release"
 
           fetch_file() {
-            gh api -H 'Accept: application/vnd.github.raw+json' \
-              "repos/$GITHUB_REPOSITORY/contents/$1?ref=$GITHUB_SHA" > "$2"
+            curl --fail --silent --show-error --location --retry 3 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$1?ref=$GITHUB_SHA" \
+              --output "$2"
           }
           fetch_file LOMSave2/LOMSave2Plugin.cs Plugin.cs
           version="$(python3 -c 'import pathlib,re; print(re.search(r"PluginVersion = \"(\d+\.\d+\.\d+)\"", pathlib.Path("Plugin.cs").read_text()).group(1))')"
