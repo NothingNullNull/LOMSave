@@ -6,10 +6,10 @@
 
 ## 下载与安装
 
-下载 [2.0.1 安装包](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/LOMSave-v2.0.1.zip)，或 [独立 LOMSave2.dll](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/LOMSave2.dll)。校验值见 [SHA256SUMS.txt](https://github.com/NothingNullNull/LOMSave/releases/download/v2.0.1/SHA256SUMS.txt)，发布说明见 [GitHub Release](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.1)。
+当前版本为 **2.0.2**，适配游戏 `release_1.0.6000.2`。下载见 [GitHub Releases](https://github.com/NothingNullNull/LOMSave/releases)；旧 2.0.1 不适用于本次游戏更新。
 
 1. 关闭游戏并备份完整存档目录。
-2. 安装 **BepInEx 5.x x86（32 位、Mono）** 到游戏根目录；本次验证环境为 5.4.23.5。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases)
+2. 新版游戏已改为 **64 位 Mono**，安装 **BepInEx 5.4.23.5 Windows x64** 到游戏根目录。[BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 中选择 `BepInEx_win_x64_5.4.23.5.zip`。从旧版升级时，备份后覆盖对应加载器文件，包括根目录的 `winhttp.dll`，保留自己的配置和插件；仅更新 MOD DLL 无法修复旧 x86 加载器。
 3. 若装过旧版 MOD，移走 `BepInEx/plugins` 下的旧 `LOMSave.dll`；避免同时加载两个实现。旧整合包使用 BepInEx 6，应先按官方方式切换加载器，不能混用 5/6 的核心文件。
 4. 将安装包解压到游戏根目录，最终 DLL 路径为 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。独立 DLL 也放到此处。
 5. 重启游戏，直接通过游戏自带的存档/读档界面使用；需要快捷操作时，也可使用下方快捷键。
@@ -38,6 +38,8 @@
 - `DIFF`：发现差异，查看报告中的字段、保存值和读取值。
 - `INCOMPLETE`：回放或验证未完成，不能视为一致。
 
+`FreeRandomState` 不计入差异。其余差异超过 1 项时显示持续 10 秒的橙红色警告；只有 1 项时保留 `DIFF` 和普通提示。
+
 详细步骤见 [存读档状态验证](docs/存读档状态验证.md)。
 
 ## 配置
@@ -61,13 +63,14 @@
 - 格式 2、损坏或配对不一致的附加档回退到原生读取；恢复点可能早于保存时的对话位置。
 - **旧仓库 1.x 的 `.ss` / `.ss.json` 不会自动转换为 `.loms`。** 保留完整旧档备份，先核对原生读档后的进度，再用 2.0 重新保存；不能保证旧 MOD 的精确对话停点。
 - 开发过程中的 2.1.x～2.3.x 已整合为此次正式发布的 **2.0.0**；插件 GUID、程序集身份与附加档格式保持兼容。
-- 实机回放仍有 `FreeRandomState.s0..s3` 四项已知差异，报告保留 `DIFF`；后续随机结果可能不同，不能宣称全部状态一致。
+- `FreeRandomState`（含嵌入还原存档）不参与一致性判定及警告计数，完整报告标注“已忽略”；此规则不改变实际随机状态，也不保证后续随机结果相同。
 - 当前不完整拦截跨游戏版本或脚本变化。游戏更新后先按 [兼容性检查清单](游戏更新兼容性检查清单.md) 用存档副本验证。
+- `release_1.0.6000.2` 新增大量任务、角色和事件标记，并调整部分剧情；旧档与新版本快照之间可能出现大量差异。样本能读入不代表所有旧剧情停点都兼容，重新保存也不能反向证明旧档恢复准确。
 - UI 动画、语音播放位置，以及 Lua 局部变量、表、函数不在状态快照比较范围内。其他修改相同接口的 MOD 需要单独验证兼容性。
 
 ## 从源码编译
 
-需要 .NET SDK、本地游戏与 BepInEx 5 x86。依赖程序集从游戏安装目录读取，不随仓库分发。以下命令在仓库根目录执行，将占位符替换为实际游戏安装目录。
+需要 .NET SDK、本地游戏与 BepInEx 5 Mono，加载器位数须与游戏一致（当前新版为 x64）。依赖程序集从游戏安装目录读取，不随仓库分发。以下命令在仓库根目录执行，将占位符替换为实际游戏安装目录。
 
 ```powershell
 $gameDir = '<游戏安装目录的完整路径>'

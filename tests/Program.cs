@@ -53,6 +53,14 @@ internal static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run()
     {
+        Test("Doorstop loader architecture matches Unity player and Mono runtime", () =>
+        {
+            ushort expected = PeMachine(Path.Combine(_gameDir, "Mortal.exe"));
+            Check(expected == 0x14c || expected == 0x8664, "Unknown game executable architecture.");
+            foreach (string path in new[] { "UnityPlayer.dll", "winhttp.dll", "MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll" })
+                Check(PeMachine(Path.Combine(_gameDir, path)) == expected,
+                    "Architecture mismatch: " + path + ". Install the BepInEx Mono package matching the updated game.");
+        });
         Test("native commit verification", () =>
         {
             var native = Native(101);
@@ -323,9 +331,59 @@ internal static class Program
             }
             Check(LomsIoContext.ManualLoadSlot == null && LomsIoContext.ManualSaveSlot == null, "Context leaked.");
         });
+        Test("native load restores the saved start script without replacing the running script", () =>
+        {
+            var player = (PlayerStatManagerData)FormatterServices.GetUninitializedObject(typeof(PlayerStatManagerData));
+            var start = AccessTools.Field(typeof(PlayerStatManagerData), "_startStoryScript");
+            var current = AccessTools.Field(typeof(PlayerStatManagerData), "_currentStoryScript");
+            try
+            {
+                foreach (string savedStart in new[] { "ch1_1", "back_001", "", null })
+                {
+                    player.SetStartScript("S0200_01");
+                    current.SetValue(player, "native-current");
+                    var saved = new GameSave { StartStoryScript = savedStart, CurrentStoryScript = "stored-current" };
+                    LomsRuntime.Replaying = false;
+                    LomsRuntime.LoadInProgress = true;
+                    Patches.SaveSystem_ExecuteLoadGameData_Postfix(saved, player);
+                    Check((string)start.GetValue(player) == savedStart, "Previous session's start script survived loading.");
+                    Check(player.CurrentStoryScript == "native-current", "Non-replay load changed the native running script.");
+                    Check(saved.StartStoryScript == savedStart && saved.CurrentStoryScript == "stored-current", "Load mutated saved script pointers.");
+                    Check(!LomsRuntime.LoadInProgress, "Load gate was not released.");
+                }
+            }
+            finally { LomsRuntime.LoadInProgress = false; LomsRuntime.Replaying = false; }
+        });
         Test("actual mid-script AutoSave does not discard preceding dialogue events", MidScriptBoundary);
         Test("real v2 fixture deserializes and safely falls back", LegacyFixture);
         Test("Harmony targets and injected arguments match shipped game assemblies", PatchBindings);
+        Test("display-only introduction replay does not activate a relationship", () =>
+        {
+            LomsRuntime.Replaying = true;
+            LomsRuntime.Cursor = 0;
+            LomsRuntime.Events.Clear();
+            LomsRuntime.Events.Add(new PanelEvent { K = "intro:1:test-character" });
+            var next = new SayEvent { Hash = "next dialogue" };
+            LomsRuntime.Events.Add(next);
+            try
+            {
+                System.Collections.IEnumerator replay = null;
+                Check(!Patches.CharacterIntroPanel_Show_Prefix("test-character", 1, ref replay),
+                    "Display-only introduction was not skipped.");
+                // No player or relationship manager exists in this test. The
+                // display-only path must finish without touching either one.
+                Check(replay != null && !replay.MoveNext(), "Display-only replay tried to apply character state.");
+                Check(LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], next),
+                    "Introduction consumed more than its own event.");
+            }
+            finally
+            {
+                LomsRuntime.Replaying = false;
+                LomsRuntime.Cursor = 0;
+                LomsRuntime.Events.Clear();
+                LomsVerification.Reset();
+            }
+        });
         Test("state snapshot survives serialization and is independent of live objects", () =>
         {
             var native = Native(1501);
@@ -356,7 +414,7 @@ internal static class Program
             Check(result.Differences.Count == 0, "Ordering/timestamp caused a false difference.");
             Check(result.IgnoredDifferences.Count == 1, "Timestamp was not documented.");
         });
-        Test("state diff identifies stats, inventory, relationships, flags and random state", () =>
+        Test("state diff identifies gameplay changes and excludes FreeRandomState", () =>
         {
             var before = Native(1701);
             before.Stats.Add(new StatSave { Key = "金錢", Value = 100 });
@@ -370,9 +428,9 @@ internal static class Program
             after.EventFlags.Add(new EventFlagSave { Name = "story_flag", State = 2 });
             after.FreeRandomState.s0 = 123;
             var result = LomsStateComparison.Compare(Snapshot(before), Snapshot(after));
-            Check(result.Differences.Count == 5, "Expected five meaningful differences.");
+            Check(result.Differences.Count == 4, "Expected four meaningful differences.");
             Check(result.Differences.Any(d => d.Path == "Game.Stats[\"金錢\"#0].Value" && d.Saved == "100" && d.Loaded == "90"), "Money diff is not actionable.");
-            Check(result.Differences.Any(d => d.Path == "Game.FreeRandomState.s0"), "Random state difference hidden.");
+            Check(result.IgnoredDifferences.Any(d => d.Path == "Game.FreeRandomState.s0"), "FreeRandomState was not excluded and documented.");
         });
         Test("missing items and Lua globals remain visible in the diff", () =>
         {
@@ -384,7 +442,7 @@ internal static class Program
             Check(result.Differences.Any(d => d.Path == "Game.Miscs[\"item1\"#0].Count" && d.Loaded == "<missing>"), "Missing inventory item concealed.");
             Check(result.Differences.Any(d => d.Path == "Lua[\"var1\"].Value" && d.Loaded == "<missing>"), "Missing cross-script global concealed.");
         });
-        Test("embedded restore save is compared semantically with only its timestamp ignored", () =>
+        Test("embedded restore save ignores timestamps and FreeRandomState while retaining gameplay differences", () =>
         {
             var before = Native(1901);
             before.RestoreData = "old JSON";
@@ -392,13 +450,29 @@ internal static class Program
             after.RestoreData = "new JSON";
             var embeddedBefore = Native(1);
             var embeddedAfter = Native(2);
+            embeddedAfter.FreeRandomState.s1 = 321;
             var saved = LomsStateSnapshot.Capture(before, new Dictionary<string, LomsLuaValue>(), "story", "Say:test", _ => embeddedBefore);
             var loaded = LomsStateSnapshot.Capture(after, new Dictionary<string, LomsLuaValue>(), "story", "Say:test", _ => embeddedAfter);
             var result = LomsStateComparison.Compare(saved, loaded);
-            Check(result.Differences.Count == 0 && result.IgnoredDifferences.Count == 2, "Restore timestamps caused a false difference.");
+            Check(result.Differences.Count == 0 && result.IgnoredDifferences.Count == 3, "Restore timestamps/random state caused a false difference.");
             embeddedAfter.CurrentYear = 2;
             loaded = LomsStateSnapshot.Capture(after, new Dictionary<string, LomsLuaValue>(), "story", "Say:test", _ => embeddedAfter);
             Check(LomsStateComparison.Compare(saved, loaded).Differences.Any(d => d.Path == "Game.RestoreData.CurrentYear"), "Embedded gameplay state difference hidden.");
+        });
+        Test("FreeRandomState exclusion does not hide similarly named flags or Lua values", () =>
+        {
+            var before = Native(1951);
+            var after = Native(1952);
+            before.EventFlags.Add(new EventFlagSave { Name = "FreeRandomState.s0", State = 1 });
+            after.EventFlags.Add(new EventFlagSave { Name = "FreeRandomState.s0", State = 2 });
+            after.FreeRandomState.s0 = 123;
+            var globals = new Dictionary<string, LomsLuaValue> { ["FreeRandomState"] = new LomsLuaValue { Type = DataType.Number, Number = 1 } };
+            var saved = LomsStateSnapshot.Capture(before, globals, "story", "Say:test");
+            globals["FreeRandomState"].Number = 2;
+            var loaded = LomsStateSnapshot.Capture(after, globals, "story", "Say:test");
+            var result = LomsStateComparison.Compare(saved, loaded);
+            Check(result.Differences.Count == 2 && result.Differences.Any(d => d.Path.StartsWith("Lua["))
+                && result.Differences.Any(d => d.Path.StartsWith("Game.EventFlags[")), "Unrelated state was excluded.");
         });
         Test("effective stat modifiers participate even when saved base values match", () =>
         {
@@ -428,6 +502,28 @@ internal static class Program
             LomsVerification.Verify(() => changed);
             string report = File.ReadAllText(LomsVerification.LastReportPath);
             Check(report.Contains("结果：DIFF") && report.Contains("Runtime.PendingInteraction"), "Different position claimed as consistent.");
+        });
+        Test("player warning requires more than one non-ignored difference and resets on later checks", () =>
+        {
+            foreach (int count in new[] { 2, 1, 0 })
+            {
+                LomsVerification.Begin(Snapshot(Native(2251)), "threshold");
+                LomsVerification.ReplayFinished("cursor exhausted", 1, 1);
+                var actual = Native(2252);
+                actual.FreeRandomState.s0 = 123;
+                actual.FreeRandomState.s1 = 234;
+                actual.FreeRandomState.s2 = 345;
+                actual.FreeRandomState.s3 = 456;
+                if (count >= 1) actual.CurrentYear = 2;
+                if (count >= 2) actual.CurrentMonth = 3;
+                LomsVerification.Verify(() => Snapshot(actual));
+                Check(LomsVerification.LastNeedsWarning == (count > 1), "Warning threshold is not strictly greater than one.");
+                Check(LomsVerification.LastSummary.StartsWith("警告：") == (count > 1), "Player warning text does not match threshold.");
+                string report = File.ReadAllText(LomsVerification.LastReportPath);
+                Check(report.Contains("结果：" + (count == 0 ? "PASS" : "DIFF")), "Single difference or random-only report has wrong status.");
+                Check(report.Contains("；差异：" + count + "；"), "Excluded random fields affected the difference count.");
+                Check(report.Contains("Game.FreeRandomState.s0\t0\t123\t已忽略：FreeRandomState"), "Excluded values missing from audit report.");
+            }
         });
         Test("replay anomalies cannot produce PASS even when field values match", () =>
         {
@@ -477,7 +573,7 @@ internal static class Program
             LomsVerification.Begin(Snapshot(Native(2701)), "slot");
             LomsVerification.ReplayFinished("cursor exhausted", 0, 0);
             LomsVerification.Begin(null, "old slot");
-            Check(!LomsVerification.AutoPending && LomsVerification.LastReportPath == null, "Old load retained verification.");
+            Check(!LomsVerification.AutoPending && LomsVerification.LastReportPath == null && !LomsVerification.LastNeedsWarning, "Old load retained verification.");
             Check(LomsVerification.Verify(() => Snapshot(Native(2702))).Contains("没有验证基准"), "Legacy save claimed as verified.");
         });
         Test("live Lua wrappers retain the waiting checkpoint across coroutine yields", LuaWaitCheckpoints);
@@ -639,6 +735,20 @@ internal static class Program
         Console.WriteLine("  Checked " + checkedMethods + " patch methods.");
     }
 
+    private static ushort PeMachine(string path)
+    {
+        using (var reader = new BinaryReader(File.OpenRead(path)))
+        {
+            Check(reader.ReadUInt16() == 0x5a4d, "Invalid executable: " + path);
+            reader.BaseStream.Position = 0x3c;
+            int offset = reader.ReadInt32();
+            Check(offset >= 0 && offset <= reader.BaseStream.Length - 6, "Invalid PE offset: " + path);
+            reader.BaseStream.Position = offset;
+            Check(reader.ReadUInt32() == 0x00004550, "Invalid PE header: " + path);
+            return reader.ReadUInt16();
+        }
+    }
+
     private static void MidScriptBoundary()
     {
         // The production patch must not intercept this checkpoint setter: it
@@ -649,6 +759,7 @@ internal static class Program
         var events = new List<string>();
         script.Globals["record_say"] = (Action<string>)(_ => events.Add("say"));
         script.Globals["record_choice"] = (Action)(() => events.Add("choose"));
+        script.Globals["record_autosave"] = (Action)(() => events.Add("autosave"));
         script.DoString(@"
           local noop=function(...) return {} end
           characters=setmetatable({}, {__index=function() return noop end})
@@ -658,15 +769,18 @@ internal static class Program
           setsaydialog=noop; setcharacter=noop; setmenudialog=noop
           sayoptions={}; saydialogs={center={},character={}}; narrative={}
           menudialogs={Options={SetActive=noop}}
-          luamanager={PlayMusic=noop, SetGameTime=noop, AutoSave=noop, GetStoryText=function(k) return k end}
+          luamanager={PlayMusic=noop, SetGameTime=noop, AutoSave=record_autosave, GetStoryText=function(k) return k end}
           statmodifymanager={SetFlag=noop, Player=noop, GetDisplayTime=function() return 0 end}
           say=function(t) record_say(t) end
           choose=function(t) record_choice(); return 1 end
         ");
         // End just after the first selected branch's dialogue; close that if.
-        string code = string.Join("\n", File.ReadAllLines(Path.Combine(_root, "assets/story/ch2_4_5_3.txt")).Take(81)) + "\nend";
+        string[] lines = File.ReadAllLines(Path.Combine(_root, "assets/story/ch2_4_5_3.txt"));
+        int end = Array.FindIndex(lines, line => line.Trim() == "say(luamanager.GetStoryText(\"D_2_4_5_3_001\"))");
+        Check(end >= 0, "Expected first-branch dialogue is missing from the shipped story.");
+        string code = string.Join("\n", lines.Take(end + 1)) + "\nend";
         script.DoString(code);
-        Check(string.Join(",", events) == "say,say,choose,say", "Dialogue prefix is missing or reordered.");
+        Check(string.Join(",", events) == "say,say,autosave,choose,say", "Dialogue prefix is missing or reordered.");
     }
 
     private static Script BackStoryEnvironment()

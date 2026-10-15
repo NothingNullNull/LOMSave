@@ -7,7 +7,7 @@ using Mortal.Core;
 
 namespace LOMSave2
 {
-    // Only the panel's editable stats and its fate cost belong to this event.
+    // Only the panel's confirmed effects belong to this event.
     // Verification snapshots are never used to restore gameplay state.
     public static class LomsFateBonus
     {
@@ -90,7 +90,16 @@ namespace LOMSave2
                 foreach (FateBonusChange change in value.Changes)
                     if (!targets[change.Key].CanWrite(change.After))
                         throw new InvalidOperationException("命运点数超出目前上限：" + change.Key);
+                var statCost = StatCostFlag(panel);
+                int statCostAfter = StatCostAfter(value);
+                var recordedCost = value.Changes.FirstOrDefault(c => c.Key == "flag:" + statCost.name);
+                if (recordedCost != null && recordedCost.After != statCostAfter)
+                    throw new InvalidOperationException("命运点数属性加成总数不同");
                 foreach (FateBonusChange change in value.Changes) targets[change.Key].Write(change.After);
+                // ConfirmStart now derives this flag from six base-stat deltas.
+                // Older format-4 events omit it; calculate it with the current
+                // game's rule without changing their recorded choices.
+                statCost.State = statCostAfter;
                 foreach (FateBonusChange change in value.Changes)
                     if (targets[change.Key].Read() != change.After)
                         throw new InvalidOperationException("命运点数应用结果不同：" + change.Key);
@@ -167,6 +176,22 @@ namespace LOMSave2
         private static Dictionary<string, int> Read(Dictionary<string, Target> targets)
             => targets.ToDictionary(p => p.Key, p => p.Value.Read(), StringComparer.Ordinal);
 
+        private static FlagData StatCostFlag(FateBonusPanel panel)
+            => (FlagData)AccessTools.Field(typeof(FateBonusPanel), "_statCostFlagData").GetValue(panel);
+
+        private static int StatCostAfter(FateBonusEvent value)
+        {
+            int result = 0;
+            foreach (GameStatType type in new[] { GameStatType.體力, GameStatType.內力, GameStatType.輕功,
+                GameStatType.武功刀劍, GameStatType.武功拳掌, GameStatType.武功暗器 })
+            {
+                var stat = PlayerStatManagerData.Instance.Stats.Get(type);
+                var change = value.Changes.FirstOrDefault(c => c.Key == "stat:" + type);
+                result += stat.GetDefaultDelta() + (change == null ? 0 : change.After - stat.Value);
+            }
+            return result;
+        }
+
         private static Dictionary<string, Target> Bind(FateBonusPanel panel)
         {
             var targets = new Dictionary<string, Target>(StringComparer.Ordinal);
@@ -193,10 +218,11 @@ namespace LOMSave2
                 targets.Add("social:" + stat.Type, new Target { Read = () => stat.Value, Write = stat.SetValue });
             }
             var flags = (FlagBonusStatData)AccessTools.Field(typeof(FateBonusPanel), "_flagData").GetValue(panel);
-            foreach (var model in flags.List)
+            foreach (FlagData stat in flags.List.Select(model => model.Stat).Concat(new[] { StatCostFlag(panel) }))
             {
-                FlagData stat = model.Stat;
-                targets.Add("flag:" + stat.name, new Target { Read = () => stat.State, Write = value => stat.State = value });
+                string key = "flag:" + stat.name;
+                if (!targets.ContainsKey(key))
+                    targets.Add(key, new Target { Read = () => stat.State, Write = value => stat.State = value });
             }
             return targets;
         }

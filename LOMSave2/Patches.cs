@@ -199,8 +199,6 @@ namespace LOMSave2
                 // restore pointers; the script will reproduce later changes.
                 b.TimeTick = gameSave.TimeTick;
                 b.CurrentScene = sc.Scene;
-                b.StartStoryScript = sc.BoundaryScript;
-                b.CurrentStoryScript = sc.BoundaryScript;
                 gameSave = b;
 
                 LomsRuntime.BeginReplay(sc, b, slot);
@@ -213,8 +211,15 @@ namespace LOMSave2
 
         [HarmonyPatch(typeof(SaveSystem), "ExecuteLoadGameData")]
         [HarmonyPostfix]
-        public static void SaveSystem_ExecuteLoadGameData_Postfix()
+        public static void SaveSystem_ExecuteLoadGameData_Postfix(GameSave gameSave, PlayerStatManagerData ____playerStat)
         {
+            // Native Load uses StartStoryScript for the running script but
+            // leaves its saved checkpoint field at the previous session's value.
+            ____playerStat.SetStartScript(gameSave.StartStoryScript);
+            // A replay entry can differ from that native checkpoint. Select it
+            // only for execution, without rewriting the boundary save itself.
+            if (LomsRuntime.LoadInProgress && LomsRuntime.Replaying)
+                ____playerStat.SetStoryScript(LomsRuntime.BoundaryScript);
             LomsRuntime.LoadInProgress = false;
         }
 
@@ -440,24 +445,26 @@ namespace LOMSave2
             HandleInteractionPanel(__instance.gameObject);
         }
 
-        // Intro panel: view-type, but its body mutates state (relationshipStat.SetActive) —
-        // when skipping on replay we must apply that state ourselves.
-        [HarmonyPatch(typeof(CharacterIntroPanel), "Show")]
+        // The one-argument overload delegates here. Mode 0 activates the
+        // relationship; mode 1 only displays the introduction.
+        [HarmonyPatch(typeof(CharacterIntroPanel), "Show", new System.Type[] { typeof(string), typeof(int) })]
         [HarmonyPrefix]
-        public static bool CharacterIntroPanel_Show_Prefix(string key, ref IEnumerator __result)
+        public static bool CharacterIntroPanel_Show_Prefix(string key, int mode, ref IEnumerator __result)
         {
+            // Preserve existing mode-0 events so pre-update saves still replay.
+            string eventKey = mode == 0 ? "intro:" + key : "intro:" + mode + ":" + key;
             if (LomsRuntime.Replaying)
             {
                 PanelEvent e = LomsRuntime.Consume<PanelEvent>();
                 if (e != null)
                 {
-                    if (e.K != "intro:" + key) LomsVerification.ReplayIssue("角色介绍错位：intro:" + key + " != " + e.K);
-                    __result = LomsRuntime.InstantIntro(key);
+                    if (e.K != eventKey) LomsVerification.ReplayIssue("角色介绍错位：" + eventKey + " != " + e.K);
+                    __result = mode == 0 ? LomsRuntime.InstantIntro(key) : LomsRuntime.EmptyEnumerator();
                     return false;
                 }
                 LomsRuntime.EndReplay("intro at cursor end");
             }
-            LomsRuntime.Record(new PanelEvent { K = "intro:" + key });
+            LomsRuntime.Record(new PanelEvent { K = eventKey });
             return true;
         }
 

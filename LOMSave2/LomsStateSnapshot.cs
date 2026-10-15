@@ -151,6 +151,19 @@ namespace LOMSave2
         public readonly List<LomsStateDifference> Differences = new List<LomsStateDifference>();
         public readonly List<LomsStateDifference> IgnoredDifferences = new List<LomsStateDifference>();
 
+        public static string IgnoreReason(string path)
+        {
+            if (!path.StartsWith("Game.", StringComparison.Ordinal)) return null;
+            if (path.EndsWith(".TimeTick", StringComparison.Ordinal)) return "保存时间戳";
+            // Match GameSave members only, including embedded restore saves.
+            // A flag/Lua variable whose name contains FreeRandomState still counts.
+            string member = path.Substring("Game.".Length);
+            while (member.StartsWith("RestoreData.", StringComparison.Ordinal))
+                member = member.Substring("RestoreData.".Length);
+            return member == "FreeRandomState" || member.StartsWith("FreeRandomState.", StringComparison.Ordinal)
+                ? "FreeRandomState" : null;
+        }
+
         public static LomsStateComparison Compare(LomsStateSnapshot saved, LomsStateSnapshot loaded)
         {
             if (saved == null || !saved.IsValid() || loaded == null || !loaded.IsValid())
@@ -160,9 +173,7 @@ namespace LOMSave2
             {
                 bool hasSaved = saved.Values.TryGetValue(path, out string before);
                 bool hasLoaded = loaded.Values.TryGetValue(path, out string after);
-                // These are wall-clock save timestamps, including a timestamp
-                // inside the game's embedded restore save, not game progress.
-                bool ignored = path.StartsWith("Game.", StringComparison.Ordinal) && path.EndsWith(".TimeTick", StringComparison.Ordinal);
+                bool ignored = IgnoreReason(path) != null;
                 if (!ignored) result.ComparedFields++;
                 if (hasSaved == hasLoaded && before == after) continue;
                 var difference = new LomsStateDifference { Path = path, Saved = hasSaved ? before : "<missing>", Loaded = hasLoaded ? after : "<missing>", Ignored = ignored };

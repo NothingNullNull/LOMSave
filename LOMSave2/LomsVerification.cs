@@ -22,6 +22,7 @@ namespace LOMSave2
         public static bool AutoPending { get; private set; }
         public static string LastSummary { get; private set; }
         public static string LastReportPath { get; private set; }
+        public static bool LastNeedsWarning { get; private set; }
 
         public static void Begin(LomsStateSnapshot expected, string slot)
         {
@@ -41,6 +42,7 @@ namespace LOMSave2
             ReplayIssues.Clear();
             LastSummary = null;
             LastReportPath = null;
+            LastNeedsWarning = false;
         }
 
         public static void ReplayIssue(string message)
@@ -72,6 +74,8 @@ namespace LOMSave2
         public static string Verify(Func<LomsStateSnapshot> capture, string trigger = "手动：F8")
         {
             AutoPending = false;
+            LastNeedsWarning = false;
+            LastReportPath = null;
             if (_expected == null || !_expected.IsValid())
             {
                 LastSummary = "此存档没有验证基准，请用新版重新存档再读档";
@@ -90,9 +94,13 @@ namespace LOMSave2
             bool positionKnown = !string.IsNullOrEmpty(_expected.Checkpoint) && actual != null && !string.IsNullOrEmpty(actual.Checkpoint);
             bool trustworthy = error == null && _replayComplete && ReplayIssues.Count == 0 && positionKnown;
             string status = !trustworthy ? "INCOMPLETE" : comparison.Differences.Count == 0 ? "PASS" : "DIFF";
+            LastNeedsWarning = comparison != null && comparison.Differences.Count > 1;
             LastSummary = status == "PASS" ? "存读档验证一致（" + comparison.ComparedFields + " 项）"
                 : status == "DIFF" ? "存读档有 " + comparison.Differences.Count + " 项差异，详见验证报告"
                 : "存读档验证未完成，详见验证报告";
+            if (LastNeedsWarning)
+                LastSummary = "警告：读档后发现 " + comparison.Differences.Count + " 项状态差异，"
+                    + (status == "INCOMPLETE" ? "验证未完成，" : "") + "请查看验证报告";
             try
             {
                 LastReportPath = WriteReport(status, trigger, actual, comparison, error, positionKnown);
@@ -117,10 +125,10 @@ namespace LOMSave2
             report.AppendLine("保存快照时间（UTC）：" + _expected.CapturedUtc);
             report.AppendLine("读档后快照时间（UTC）：" + actual?.CapturedUtc);
             report.AppendLine("范围：GameSave 全部字段（含嵌入还原存档）、属性最终值、Lua 标量全局、当前剧情脚本、场景、音乐/环境音键、等待位置。");
-            report.AppendLine("排除：GameSave.TimeTick 保存时间戳；不包含 UI 动画、语音播放位置和 Lua 局部变量/表/函数。");
-            report.AppendLine("随机数状态也参与对比，不会被当作正常变动忽略。");
+            report.AppendLine("排除：GameSave.TimeTick 保存时间戳及 FreeRandomState（含嵌入还原存档）；不包含 UI 动画、语音播放位置和 Lua 局部变量/表/函数。");
+            report.AppendLine("FreeRandomState 不计入差异和玩家警告；其余差异超过 1 项时警告，1 项仍记为 DIFF。忽略随机状态不保证后续随机结果一致。");
             report.AppendLine("对比字段数：" + (comparison?.ComparedFields ?? 0) + "；差异：" + (comparison?.Differences.Count ?? 0)
-                + "；时间戳变动：" + (comparison?.IgnoredDifferences.Count ?? 0));
+                + "；已忽略变化：" + (comparison?.IgnoredDifferences.Count ?? 0));
             if (!positionKnown) report.AppendLine("未完成原因：保存时或读档后没有可确认的对话/选项/等待位置。");
             if (!_replayComplete) report.AppendLine("未完成原因：回放事件尚未全部完成。");
             if (error != null) report.AppendLine("快照错误：" + error);
@@ -133,14 +141,14 @@ namespace LOMSave2
             report.AppendLine();
             report.AppendLine("完整快照对照：字段\t保存时\t读档后\t判定");
             var differing = new HashSet<string>(comparison?.Differences.Select(d => d.Path) ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
-            var ignored = new HashSet<string>(comparison?.IgnoredDifferences.Select(d => d.Path) ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             foreach (string path in _expected.Values.Keys.Union(actual?.Values?.Keys ?? Enumerable.Empty<string>()).OrderBy(p => p, StringComparer.Ordinal))
             {
                 bool beforeExists = _expected.Values.TryGetValue(path, out string before);
                 string after = null;
                 bool afterExists = actual?.Values != null && actual.Values.TryGetValue(path, out after);
+                string ignoredReason = LomsStateComparison.IgnoreReason(path);
                 report.AppendLine(path + "\t" + (beforeExists ? before : "<missing>") + "\t" + (afterExists ? after : "<missing>")
-                    + "\t" + (actual == null || comparison == null ? "未对比" : differing.Contains(path) ? "差异" : ignored.Contains(path) ? "时间戳" : "一致"));
+                    + "\t" + (actual == null || comparison == null ? "未对比" : differing.Contains(path) ? "差异" : ignoredReason != null ? "已忽略：" + ignoredReason : "一致"));
             }
             string directory = Path.GetFullPath(ReportDirectory);
             Directory.CreateDirectory(directory);

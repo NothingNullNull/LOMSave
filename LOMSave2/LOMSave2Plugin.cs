@@ -14,7 +14,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.1";
+        public const string PluginVersion = "2.0.2";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
@@ -25,6 +25,7 @@ namespace LOMSave2
 
         private static readonly List<string> FlashLines = new List<string>();
         private static float _flashUntil;
+        private static bool _flashWarning;
 
         private void Awake()
         {
@@ -103,7 +104,7 @@ namespace LOMSave2
 
         private void ShowVerificationResult()
         {
-            Flash(LomsVerification.LastSummary);
+            Flash(LomsVerification.LastSummary, LomsVerification.LastNeedsWarning);
             if (LomsVerification.LastReportPath != null)
                 Logger.LogInfo("[Loms] Verification report: " + LomsVerification.LastReportPath);
         }
@@ -229,7 +230,7 @@ namespace LOMSave2
                 {
                     fontSize = 22,
                     alignment = TextAnchor.MiddleCenter,
-                    normal = { textColor = Color.yellow },
+                    normal = { textColor = _flashWarning ? new Color(1f, 0.35f, 0.15f) : Color.yellow },
                 };
                 float y = 20f;
                 foreach (string line in FlashLines)
@@ -244,12 +245,16 @@ namespace LOMSave2
             }
         }
 
-        private static void Flash(string msg)
+        private static void Flash(string msg) => Flash(msg, false);
+
+        private static void Flash(string msg, bool warning)
         {
             FlashLines.Clear();
             FlashLines.Add(msg);
-            _flashUntil = Time.unscaledTime + 2.5f;
-            LomsRuntime.Log.LogInfo("[Loms] " + msg);
+            _flashWarning = warning;
+            _flashUntil = Time.unscaledTime + (warning ? 10f : 2.5f);
+            if (warning) LomsRuntime.Log.LogWarning("[Loms] " + msg);
+            else LomsRuntime.Log.LogInfo("[Loms] " + msg);
         }
     }
 }
