@@ -78,7 +78,7 @@ internal static class Program
             var loaded = LomsSave.TryReadFile(path, native, out string warning);
             Check(warning == null && loaded != null && loaded.Events.Count == 1, "Round trip failed: " + warning);
         });
-        Test("fate bonus choices, cost, social and flags survive format 4 serialization", () =>
+        Test("fate bonus choices, cost, social and flags survive current format serialization", () =>
         {
             var before = FateValues();
             var after = FateValues();
@@ -94,7 +94,7 @@ internal static class Program
             data.Events.Add(value);
             LomsSave.CompleteSave(path, native, data);
             var loaded = LomsSave.TryReadFile(path, native, out string warning);
-            Check(warning == null && loaded?.FormatVersion == 4, "New format unreadable: " + warning);
+            Check(warning == null && loaded?.FormatVersion == LomsSaveData.CurrentFormatVersion, "New format unreadable: " + warning);
             var replay = loaded.Events.Single() as FateBonusEvent;
             Check(LomsFateBonus.Matches(replay, before, out _), "Recorded starting state rejected.");
             foreach (var change in replay.Changes) before[change.Key] = change.After;
@@ -171,6 +171,208 @@ internal static class Program
             }
             finally { LomsRuntime.Replaying = false; LomsRuntime.ReplayFormatVersion = 0; LomsRuntime.Events.Clear(); }
         });
+        Test("format 5 native Position results preserve order and the matching native hash", PositionSerialization);
+        Test("malformed native Position events fall back without changing saved bytes", InvalidPositionSerialization);
+        Test("format 3 and 4 event streams remain readable", PreviousEventFormats);
+        Test("Position replay consumes one matching result and preserves the next event", () =>
+        {
+            var position = Position("outside", "battle_route");
+            var next = new SayEvent { Hash = LomsRuntime.HashText("next dialogue") };
+            WithReplay(5, () =>
+            {
+                Check(LomsRuntime.TryReplayPosition("outside", out string result) && result == "battle_route", "Recorded native RNG result was not used.");
+                Check(LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], next), "Position consumed or changed the following dialogue.");
+                Check(LomsLua.on_say("next dialogue") && LomsRuntime.Cursor == 2, "The preserved dialogue no longer matches.");
+            }, position, next);
+        });
+        Test("Position prefix skips native RNG and its postfix does not record a duplicate", () =>
+        {
+            var position = Position("outside", "battle_route");
+            WithReplay(5, () =>
+            {
+                string result = "uncomputed";
+                bool runNative = Patches.CheckPointManager_Position_Prefix("outside", ref result, out bool state);
+                Check(!runNative && !state && result == "battle_route", "Prefix did not suppress the random native result.");
+                Patches.CheckPointManager_Position_Postfix("outside", result, state);
+                Check(LomsRuntime.Events.Count == 1 && LomsRuntime.Cursor == 1
+                    && ReferenceEquals(LomsRuntime.Events[0], position), "Postfix duplicated an already replayed native result.");
+            }, position);
+        });
+        Test("Position wrong key, kind and empty result stop synchronously before later events", () =>
+        {
+            foreach (var position in new[] {
+                Position("different", "battle_route"),
+                new NativeCheckpointEvent { Kind = "Bogus", Key = "outside", Result = "battle_route" },
+                Position("outside", ""), Position("outside", null),
+            })
+            {
+                var next = new ChooseEvent { Sel = 1 };
+                WithReplay(5, () =>
+                {
+                    Expect<ScriptRuntimeException>(() => LomsRuntime.TryReplayPosition("outside", out _));
+                    Check(LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], next), "A divergent Position continued into a later event.");
+                    Check(LomsRuntime.Replaying, "The synchronous failure changed replay before the guard could unwind it.");
+                    Check(typeof(LomsReplayGuard).GetField("_pending", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null) != null,
+                        "Divergence was not queued for guarded recovery.");
+                }, position, next);
+            }
+        });
+        Test("Position event type mismatch throws without consuming the unrelated event", () =>
+        {
+            var dialogue = new SayEvent { Hash = "unrelated" };
+            WithReplay(5, () =>
+            {
+                Expect<ScriptRuntimeException>(() => LomsRuntime.TryReplayPosition("outside", out _));
+                Check(LomsRuntime.Cursor == 0 && ReferenceEquals(LomsRuntime.Events[0], dialogue), "A type mismatch consumed the unrelated dialogue.");
+            }, dialogue);
+        });
+        Test("legacy Position insertion records native RNG without losing the next dialogue", () =>
+        {
+            foreach (int format in new[] { 3, 4 })
+            {
+                var dialogue = new SayEvent { Hash = LomsRuntime.HashText("next dialogue") };
+                WithReplay(format, () =>
+                {
+                    string result = "native branch";
+                    Check(Patches.CheckPointManager_Position_Prefix("outside", ref result, out bool state) && state,
+                        "An old stream fabricated an unrecorded native RNG result.");
+                    Check(LomsRuntime.Cursor == 0 && LomsRuntime.Events.Count == 1 && ReferenceEquals(LomsRuntime.Events[0], dialogue),
+                        "Probing an old stream consumed its next dialogue.");
+                    Patches.CheckPointManager_Position_Postfix("outside", result, state);
+                    var inserted = LomsRuntime.Events[0] as NativeCheckpointEvent;
+                    Check(inserted?.Kind == "Position" && inserted.Key == "outside" && inserted.Result == "native branch"
+                        && LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], dialogue), "The observed old-stream result was inserted at the wrong position.");
+                    Check(LomsLua.on_say("next dialogue") && LomsRuntime.Cursor == 2, "Legacy insertion changed later dialogue matching.");
+                }, dialogue);
+            }
+        });
+        Test("legacy streams reuse an already inserted Position instead of invoking RNG again", () =>
+        {
+            foreach (int format in new[] { 3, 4 })
+                WithReplay(format, () =>
+                {
+                    Check(LomsRuntime.TryReplayPosition("outside", out string result) && result == "same branch",
+                        "An inserted legacy Position was ignored.");
+                    Check(LomsRuntime.Cursor == 1 && LomsRuntime.Events.Count == 1, "An inserted legacy Position was duplicated.");
+                }, Position("outside", "same branch"));
+        });
+        Test("Switch and Condition checkpoints replay their own ordered native results", () =>
+        {
+            foreach (string kind in new[] { "Switch", "Condition" })
+            {
+                string expected = kind == "Condition" ? "true" : "2";
+                var checkpoint = new NativeCheckpointEvent { Kind = kind, Key = "route-check", Result = expected };
+                var next = new SayEvent { Hash = "next dialogue" };
+                WithReplay(5, () =>
+                {
+                    Check(LomsRuntime.TryReplayCheckpoint(kind, "route-check", out string result) && result == expected,
+                        kind + " checkpoint result was not replayed.");
+                    Check(LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], next), "Native checkpoint consumed later dialogue.");
+                }, checkpoint, next);
+                WithReplay(5, () =>
+                {
+                    Expect<ScriptRuntimeException>(() => LomsRuntime.TryReplayCheckpoint(kind, "wrong-key", out _));
+                    Check(LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], next), "Native checkpoint key mismatch consumed later dialogue.");
+                }, checkpoint, next);
+            }
+        });
+        Test("legacy streams insert a missing checkpoint kind before the next recorded kind", () =>
+        {
+            var position = Position("outside", "same branch");
+            WithReplay(4, () =>
+            {
+                Check(!LomsRuntime.TryReplayCheckpoint("Condition", "route-check", out _)
+                    && LomsRuntime.Cursor == 0 && ReferenceEquals(LomsRuntime.Events[0], position),
+                    "A legacy missing kind consumed the next recorded kind.");
+                LomsRuntime.RecordCheckpoint("Condition", "route-check", "true");
+                var inserted = LomsRuntime.Events[0] as NativeCheckpointEvent;
+                Check(inserted?.Kind == "Condition" && inserted.Key == "route-check" && inserted.Result == "true"
+                    && LomsRuntime.Cursor == 1 && ReferenceEquals(LomsRuntime.Events[1], position), "Missing kind inserted at the wrong event position.");
+                Check(LomsRuntime.TryReplayPosition("outside", out string result) && result == "same branch"
+                    && LomsRuntime.Cursor == 2, "Missing-kind insertion lost the next recorded Position.");
+            }, position);
+        });
+        Test("Switch and Condition hooks preserve native execution and replace only recorded results", () =>
+        {
+            Check(typeof(Patches).GetMethod("CheckPointManager_Switch_Prefix").ReturnType == typeof(void)
+                && typeof(Patches).GetMethod("CheckPointManager_Condition_Prefix").ReturnType == typeof(void),
+                "A native-counting checkpoint prefix can skip original execution.");
+            WithReplay(5, () =>
+            {
+                Patches.CheckPointManager_Switch_Prefix("route-switch", out string switchState);
+                int nativeSwitch = 7;
+                Patches.CheckPointManager_Switch_Postfix("route-switch", ref nativeSwitch, switchState);
+                Check(nativeSwitch == 2, "Recorded switch result was not restored after native execution.");
+                Patches.CheckPointManager_Condition_Prefix("route-condition", out string conditionState);
+                bool nativeCondition = true;
+                Patches.CheckPointManager_Condition_Postfix("route-condition", ref nativeCondition, conditionState);
+                Check(!nativeCondition && LomsRuntime.Cursor == 2 && LomsRuntime.Events.Count == 2,
+                    "Recorded condition result was lost or hooks appended duplicate events.");
+            }, new NativeCheckpointEvent { Kind = "Switch", Key = "route-switch", Result = "2" },
+               new NativeCheckpointEvent { Kind = "Condition", Key = "route-condition", Result = "false" });
+        });
+        Test("dialogue hash and event type mismatches throw before replay can continue", () =>
+        {
+            WithReplay(5, () =>
+            {
+                Expect<ScriptRuntimeException>(() => LomsLua.on_say("changed dialogue"));
+                Check(LomsRuntime.Cursor == 1 && LomsRuntime.Events[1] is ChooseEvent, "Hash mismatch consumed a following choice.");
+            }, new SayEvent { Hash = LomsRuntime.HashText("original dialogue") }, new ChooseEvent { Sel = 1 });
+            WithReplay(5, () =>
+            {
+                Expect<ScriptRuntimeException>(() => LomsLua.on_say("unexpected dialogue"));
+                Check(LomsRuntime.Cursor == 0, "Type mismatch consumed the Position event.");
+            }, Position("outside", "same branch"));
+        });
+        Test("out-of-range replayed choices and wrong choice event types throw synchronously", () =>
+        {
+            foreach (int selection in new[] { -1, 0, 3 })
+                WithReplay(5, () =>
+                {
+                    Expect<ScriptRuntimeException>(() => LomsLua.on_choose(2));
+                    Check(LomsRuntime.Cursor == 1 && LomsRuntime.Events[1] is SayEvent, "Invalid choice continued into the following dialogue.");
+                }, new ChooseEvent { Sel = selection }, new SayEvent { Hash = "next" });
+            WithReplay(5, () =>
+            {
+                Expect<ScriptRuntimeException>(() => LomsLua.on_choose(2));
+                Check(LomsRuntime.Cursor == 0, "Choice type mismatch consumed an unrelated event.");
+            }, new SayEvent { Hash = "unrelated" });
+        });
+        Test("Lua execution after a replay mismatch remains unreachable", () =>
+        {
+            WithReplay(5, () =>
+            {
+                var script = new Script();
+                UserData.RegisterType(typeof(LomsLua));
+                script.Globals["loms"] = UserData.CreateStatic(typeof(LomsLua));
+                var coroutine = script.CreateCoroutine(script.LoadString("loms.on_say('changed dialogue'); continued=true"));
+                Expect<ScriptRuntimeException>(() => coroutine.Coroutine.Resume());
+                Check(script.Globals.Get("continued").Type == DataType.Nil, "Lua executed commands after a replay mismatch.");
+            }, new SayEvent { Hash = LomsRuntime.HashText("original dialogue") });
+        });
+        Test("disabled presentation optimization leaves resource and transition iterators untouched", () =>
+        {
+            bool fast = LomsRuntime.FastPresentation;
+            try
+            {
+                LomsRuntime.FastPresentation = false;
+                var original = new ProbeEnumerator();
+                Fungus.Task task = null;
+                Check(Patches.LuaEnvironment_RunUnityCoroutine_Prefix(original, ref task), "Disabled optimization skipped native resource execution.");
+                System.Collections.IEnumerator result = original;
+                Check(Patches.StoryTransitionBlack_TransitionIn_Prefix(null, "lr", ref result)
+                    && ReferenceEquals(result, original), "Disabled optimization replaced the native entering transition.");
+                Check(Patches.StoryTransitionBlack_TransitionOut_Prefix(null, "rl", ref result)
+                    && ReferenceEquals(result, original), "Disabled optimization replaced the native exiting transition.");
+                Check(original.Moves == 0, "A fallback probe advanced the caller's iterator.");
+            }
+            finally { LomsRuntime.FastPresentation = fast; }
+        });
+        Test("completed Wait events survive format 5 save pairing", CompletedWaitSerialization);
+        Test("recorded waits replay without delay and do not run later statements after a mismatch", RecordedWaitFlow);
+        Test("a target wait suspends before later gameplay changes", TargetWaitFlow);
+        Test("multiple replayed waits reach the saved dialogue without ending at an earlier wait", WaitsBeforeDialogueFlow);
+        Test("nested waits belong to their enclosing dialogue instead of creating replay events", NestedWaitOwnership);
         Test("Free overwrite removes old sidecar", () =>
         {
             var native = Native(301);
@@ -355,6 +557,7 @@ internal static class Program
             finally { LomsRuntime.LoadInProgress = false; LomsRuntime.Replaying = false; }
         });
         Test("actual mid-script AutoSave does not discard preceding dialogue events", MidScriptBoundary);
+        Test("child script entry keeps exhausted legacy replay active until native checkpoints are rebuilt", ChildEntryKeepsLegacyReplay);
         Test("legacy resource bootstrap leaves unrelated boundaries unchanged", () =>
         {
             const string source = "child_ran = true";
@@ -711,6 +914,317 @@ internal static class Program
     private static LomsStateSnapshot Snapshot(GameSave save) => LomsStateSnapshot.Capture(save,
         new Dictionary<string, LomsLuaValue>(), "story", "Say:test");
 
+    private static NativeCheckpointEvent Position(string key, string result) => new NativeCheckpointEvent
+    {
+        Kind = "Position", Key = key, Result = result,
+    };
+
+    private static void WithReplay(int format, Action action, params LomsEvent[] events)
+    {
+        bool replaying = LomsRuntime.Replaying;
+        int version = LomsRuntime.ReplayFormatVersion;
+        int cursor = LomsRuntime.Cursor;
+        var previous = LomsRuntime.Events.ToArray();
+        var log = LomsRuntime.Log;
+        try
+        {
+            // The event algorithms are managed code. A null logger also avoids
+            // evaluating Unity singleton diagnostics in Consume's success path.
+            LomsRuntime.Log = null;
+            LomsRuntime.Replaying = true;
+            LomsRuntime.ReplayFormatVersion = format;
+            LomsRuntime.Cursor = 0;
+            LomsRuntime.Events.Clear();
+            LomsRuntime.Events.AddRange(events);
+            LomsReplayGuard.Reset();
+            LomsVerification.Reset();
+            action();
+        }
+        finally
+        {
+            LomsRuntime.Replaying = replaying;
+            LomsRuntime.ReplayFormatVersion = version;
+            LomsRuntime.Cursor = cursor;
+            LomsRuntime.Events.Clear();
+            LomsRuntime.Events.AddRange(previous);
+            LomsRuntime.Log = log;
+            LomsReplayGuard.Reset();
+            LomsVerification.Reset();
+        }
+    }
+
+    private static void WithReplayTarget(string checkpoint, string story, Action action)
+    {
+        MethodInfo setCheckpoint = typeof(LomsRuntime).GetProperty("ReplayTargetCheckpoint").GetSetMethod(true);
+        FieldInfo targetStory = AccessTools.Field(typeof(LomsRuntime), "_replayTargetStory");
+        string previousCheckpoint = LomsRuntime.ReplayTargetCheckpoint;
+        object previousStory = targetStory.GetValue(null);
+        try
+        {
+            setCheckpoint.Invoke(null, new object[] { checkpoint });
+            targetStory.SetValue(null, story == null ? null : LomsStateSnapshot.Quote(story));
+            action();
+        }
+        finally
+        {
+            setCheckpoint.Invoke(null, new object[] { previousCheckpoint });
+            targetStory.SetValue(null, previousStory);
+        }
+    }
+
+    private static void PositionSerialization()
+    {
+        var native = Native(2811);
+        string path = SaveNative("position-format5", native);
+        var data = Sidecar();
+        data.Events.Add(Position("outside", "battle_route"));
+        data.Events.Add(new SayEvent { Hash = LomsRuntime.HashText("after native RNG") });
+        data.Events.Add(Position("inside", "dialogue_route"));
+        data.Events.Add(new NativeCheckpointEvent { Kind = "Switch", Key = "switch-route", Result = "2" });
+        data.Events.Add(new NativeCheckpointEvent { Kind = "Condition", Key = "condition-route", Result = "true" });
+        Check(data.FormatVersion == 5 && LomsSaveData.CurrentFormatVersion == 5, "Native checkpoint format version changed unexpectedly.");
+        Check(LomsSave.CompleteSave(path, native, data), "Format-5 commit rejected.");
+        var loaded = LomsSave.TryReadFile(path, native, out string warning);
+        Check(loaded != null && warning == null && loaded.FormatVersion == 5 && loaded.Events.Count == 5,
+            "Format-5 stream did not round trip: " + warning);
+        var first = loaded.Events[0] as NativeCheckpointEvent;
+        var last = loaded.Events[2] as NativeCheckpointEvent;
+        Check(first?.Kind == "Position" && first.Key == "outside" && first.Result == "battle_route"
+            && loaded.Events[1] is SayEvent && last?.Key == "inside" && last.Result == "dialogue_route", "Native event payloads or order changed.");
+        var switchEvent = loaded.Events[3] as NativeCheckpointEvent;
+        var condition = loaded.Events[4] as NativeCheckpointEvent;
+        Check(switchEvent?.Kind == "Switch" && switchEvent.Key == "switch-route" && switchEvent.Result == "2"
+            && condition?.Kind == "Condition" && condition.Key == "condition-route" && condition.Result == "true", "Switch or Condition payload changed on serialization.");
+        using (var stream = File.OpenRead(path))
+        using (var sha = SHA256.Create())
+            Check(loaded.NativeSaveHash == Convert.ToBase64String(sha.ComputeHash(stream)), "Format-5 sidecar lost its native file hash.");
+        byte[] replayBytes = File.ReadAllBytes(path + ".loms");
+        var replacement = Native(2812);
+        WriteNative(path, replacement);
+        Check(LomsSave.TryReadFile(path, replacement, out warning) == null && !string.IsNullOrEmpty(warning), "Format-5 stream accepted a replaced native save.");
+        Check(replayBytes.SequenceEqual(File.ReadAllBytes(path + ".loms")), "Hash rejection changed the sidecar bytes.");
+    }
+
+    private static void InvalidPositionSerialization()
+    {
+        var invalid = new[] {
+            new NativeCheckpointEvent { Kind = "Bogus", Key = "outside", Result = "route" },
+            new NativeCheckpointEvent { Kind = null, Key = "outside", Result = "route" },
+            Position("", "route"), Position(null, "route"),
+            Position("outside", ""), Position("outside", null),
+            new NativeCheckpointEvent { Kind = "Switch", Key = "route", Result = "-1" },
+            new NativeCheckpointEvent { Kind = "Switch", Key = "route", Result = "not-an-int" },
+            new NativeCheckpointEvent { Kind = "Switch", Key = "route", Result = "2147483648" },
+            new NativeCheckpointEvent { Kind = "Condition", Key = "route", Result = "True" },
+            new NativeCheckpointEvent { Kind = "Condition", Key = "route", Result = "yes" },
+        };
+        for (int i = 0; i < invalid.Length; i++)
+        {
+            var native = Native(2820 + i);
+            string path = SaveNative("invalid-position-" + i, native);
+            var data = Sidecar();
+            data.Events.Add(invalid[i]);
+            Check(LomsSave.CompleteSave(path, native, data), "Could not build malformed fixture.");
+            byte[] nativeBytes = File.ReadAllBytes(path);
+            byte[] replayBytes = File.ReadAllBytes(path + ".loms");
+            Check(LomsSave.TryReadFile(path, native, out string warning) == null && !string.IsNullOrEmpty(warning),
+                "Malformed native checkpoint accepted at fixture " + i + ".");
+            Check(nativeBytes.SequenceEqual(File.ReadAllBytes(path)) && replayBytes.SequenceEqual(File.ReadAllBytes(path + ".loms")),
+                "Malformed checkpoint rejection changed saved bytes.");
+        }
+    }
+
+    private static void PreviousEventFormats()
+    {
+        foreach (int format in new[] { 3, 4 })
+        {
+            var native = Native(2830 + format);
+            string path = SaveNative("previous-format-" + format, native);
+            var data = Sidecar();
+            data.FormatVersion = format;
+            data.Events.Add(new SayEvent { Hash = "old dialogue" });
+            if (format == 4) data.Events.Add(new FateBonusEvent());
+            Check(LomsSave.CompleteSave(path, native, data), "Previous format fixture commit rejected.");
+            var loaded = LomsSave.TryReadFile(path, native, out string warning);
+            Check(loaded != null && warning == null && loaded.FormatVersion == format
+                && loaded.Events.Count == data.Events.Count, "Supported previous stream became unreadable: " + warning);
+        }
+    }
+
+    private static void CompletedWaitSerialization()
+    {
+        var native = Native(2851);
+        string path = SaveNative("completed-waits", native);
+        var data = Sidecar();
+        data.Events.Add(new WaitEvent { Duration = "0.25" });
+        data.Events.Add(new SayEvent { Hash = LomsRuntime.HashText("after waiting") });
+        Check(LomsSave.CompleteSave(path, native, data), "Completed-wait save commit rejected.");
+        var loaded = LomsSave.TryReadFile(path, native, out string warning);
+        Check(loaded != null && warning == null && loaded.FormatVersion == 5
+            && (loaded.Events[0] as WaitEvent)?.Duration == "0.25" && loaded.Events[1] is SayEvent,
+            "Completed wait duration or event order did not survive serialization: " + warning);
+        Check(LomsSave.WasCommitted(path, native, out string hash) && hash == loaded.NativeSaveHash,
+            "Completed-wait stream is not paired with the committed native save.");
+    }
+
+    private static Script WaitFlowEnvironment(Func<string, bool> onWait, Func<string, bool> onSay,
+        Action<string> waitDone = null)
+    {
+        var script = new Script();
+        var bindings = new Table(script);
+        bindings["on_say"] = onSay;
+        bindings["on_choose"] = (Func<int, int>)(_ => 0);
+        bindings["on_random"] = (Func<double, double>)(value => value);
+        bindings["replaying"] = (Func<bool>)(() => LomsRuntime.Replaying);
+        bindings["on_wait"] = onWait;
+        bindings["wait_done"] = waitDone ?? (Action<string>)(_ => { });
+        bindings["wait_begin"] = (Func<string, string, int>)LomsLua.wait_begin;
+        bindings["wait_end"] = (Action<int>)LomsLua.wait_end;
+        bindings["say_done"] = (Action<string>)(_ => { });
+        bindings["choose_done"] = (Action<int>)(_ => { });
+        script.Globals["loms"] = bindings;
+        script.DoString(@"
+          raw_wait_calls=0; raw_say_calls=0
+          say=function(text) raw_say_calls=raw_say_calls+1; coroutine.yield('say:'..text) end
+          choose=function(options) return 1 end
+          choosetimer=choose
+          wait=function(t) raw_wait_calls=raw_wait_calls+1; coroutine.yield('wait:'..t) end
+        ");
+        script.DoString(LomsPreamble.Code);
+        return script;
+    }
+
+    private static void RecordedWaitFlow()
+    {
+        WithReplay(5, () =>
+        {
+            var script = WaitFlowEnvironment(LomsLua.on_wait, LomsLua.on_say);
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString("wait(0.25); say('recorded dialogue'); reached=true"));
+                coroutine.Coroutine.Resume();
+                Check(script.Globals.Get("reached").Boolean && script.Globals.Get("raw_wait_calls").Number == 0
+                    && script.Globals.Get("raw_say_calls").Number == 0 && LomsRuntime.Cursor == 2,
+                    "Recorded waiting introduced a delay or did not reach the following recorded dialogue.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, new WaitEvent { Duration = "0.25" }, new SayEvent { Hash = LomsRuntime.HashText("recorded dialogue") });
+        WithReplay(5, () =>
+        {
+            var script = WaitFlowEnvironment(LomsLua.on_wait, LomsLua.on_say);
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString("wait(0.5); awarded=true"));
+                Expect<ScriptRuntimeException>(() => coroutine.Coroutine.Resume());
+                Check(script.Globals.Get("awarded").Type == DataType.Nil && script.Globals.Get("raw_wait_calls").Number == 0,
+                    "A mismatched wait executed later rewards or started an unverified delay.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, new WaitEvent { Duration = "0.25" });
+        WithReplay(5, () =>
+        {
+            Expect<ScriptRuntimeException>(() => LomsLua.on_wait("0.25"));
+            Check(LomsRuntime.Cursor == 0, "A wait type mismatch consumed an unrelated dialogue.");
+        }, new SayEvent { Hash = "unrelated" });
+    }
+
+    private static void TargetWaitFlow()
+    {
+        WithReplayTarget("Wait:0.2", "child", () => WithReplay(4, () =>
+        {
+            Check(LomsRuntime.IsReplayTargetWait("0.2", "child")
+                && !LomsRuntime.IsReplayTargetWait("0.2", "other-child")
+                && !LomsRuntime.IsReplayTargetWait("0.15", "child"), "Saved wait identification ignored its script or duration.");
+            var completed = new List<string>();
+            var script = WaitFlowEnvironment(duration =>
+            {
+                if (LomsRuntime.Cursor >= LomsRuntime.Events.Count && LomsRuntime.IsReplayTargetWait(duration, "child"))
+                {
+                    // The production endpoint predicate is real. Substitute
+                    // only EndReplay's engine work; the Lua wait must still
+                    // yield, retain its marker and defer subsequent rewards.
+                    LomsRuntime.Replaying = false;
+                    return false;
+                }
+                return LomsLua.on_wait(duration);
+            }, LomsLua.on_say, duration => completed.Add(duration));
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString("wait(0.1); wait(0.15); wait(0.2); awarded=true"));
+                coroutine.Coroutine.Resume();
+                Check(script.Globals.Get("raw_wait_calls").Number == 1 && script.Globals.Get("awarded").Type == DataType.Nil
+                    && completed.Count == 0 && LomsRuntime.CurrentCheckpoint == "Wait:0.2",
+                    "Replay passed the target waiting point or marked it completed before its real wait resumed.");
+                Check(LomsRuntime.Cursor == 2 && LomsRuntime.Events.Count == 2
+                    && (LomsRuntime.Events[1] as WaitEvent)?.Duration == "0.15",
+                    "Legacy missing waits were not rebuilt before the saved target wait.");
+                coroutine.Coroutine.Resume();
+                Check(script.Globals.Get("awarded").Boolean && completed.SequenceEqual(new[] { "0.2" })
+                    && LomsRuntime.CurrentCheckpoint == null,
+                    "A real target wait did not record completion and release later actions after resuming.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, new WaitEvent { Duration = "0.1" }));
+    }
+
+    private static void WaitsBeforeDialogueFlow()
+    {
+        foreach (int format in new[] { 4, 5 })
+            WithReplayTarget("Say:" + LomsRuntime.HashText("target dialogue"), "child", () => WithReplay(format, () =>
+        {
+            var script = WaitFlowEnvironment(LomsLua.on_wait, text =>
+            {
+                if (LomsRuntime.Cursor < LomsRuntime.Events.Count) return LomsLua.on_say(text);
+                // Only replace EndReplay's Unity operations. A real raw say
+                // below still yields and must hold the later gameplay change.
+                LomsRuntime.Replaying = false;
+                return false;
+            });
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString("wait(0.1); completedPrefix=1; wait(0.2); say('target dialogue'); changedAfterTarget=true"));
+                coroutine.Coroutine.Resume();
+                Check(script.Globals.Get("completedPrefix").Number == 1 && script.Globals.Get("raw_wait_calls").Number == 0
+                    && script.Globals.Get("raw_say_calls").Number == 1 && script.Globals.Get("changedAfterTarget").Type == DataType.Nil,
+                    "Replay stopped at an earlier wait or passed the saved dialogue.");
+                Check(LomsRuntime.Cursor == 2 && LomsRuntime.CurrentCheckpoint == "Say:" + LomsRuntime.HashText("target dialogue"),
+                    "Waiting checkpoint no longer identifies the saved dialogue after multiple waits.");
+                Check(LomsRuntime.Events.Count == 2 && (LomsRuntime.Events[0] as WaitEvent)?.Duration == "0.1"
+                    && (LomsRuntime.Events[1] as WaitEvent)?.Duration == "0.2", "Recorded or rebuilt wait order changed.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, format == 5 ? new LomsEvent[] { new WaitEvent { Duration = "0.1" }, new WaitEvent { Duration = "0.2" } } : new LomsEvent[0]));
+    }
+
+    private static void NestedWaitOwnership()
+    {
+        var dialogue = new SayEvent { Hash = LomsRuntime.HashText("enclosing dialogue") };
+        WithReplay(5, () =>
+        {
+            int token = LomsRuntime.EnterWait("Say", dialogue.Hash);
+            try
+            {
+                Check(LomsLua.on_wait("0.1") && LomsRuntime.Cursor == 0 && LomsRuntime.Events.Count == 1,
+                    "A nested wait consumed the event owned by its enclosing dialogue.");
+                LomsRuntime.Replaying = false;
+                LomsLua.wait_done("0.1");
+                Check(LomsRuntime.Events.Count == 1 && ReferenceEquals(LomsRuntime.Events[0], dialogue),
+                    "A live nested wait inserted an event before the enclosing Say.");
+            }
+            finally
+            {
+                LomsRuntime.Replaying = true;
+                LomsRuntime.LeaveWait(token);
+            }
+            Check(LomsLua.on_say("enclosing dialogue") && LomsRuntime.Cursor == 1,
+                "Nested wait handling changed the enclosing dialogue's replay order.");
+        }, dialogue);
+    }
+
     private static void LegacyBootstrapResources()
     {
         var script = new Script();
@@ -861,6 +1375,8 @@ internal static class Program
         bindings["on_choose"] = (Func<int, int>)(_ => 0);
         bindings["on_random"] = (Func<double, double>)(value => value);
         bindings["replaying"] = (Func<bool>)(() => false);
+        bindings["on_wait"] = (Func<string, bool>)(_ => false);
+        bindings["wait_done"] = (Action<string>)(_ => { });
         bindings["wait_begin"] = (Func<string, string, int>)LomsLua.wait_begin;
         bindings["wait_end"] = (Action<int>)LomsLua.wait_end;
         bindings["say_done"] = (Action<string>)(_ => { });
@@ -1027,6 +1543,56 @@ internal static class Program
         Check(string.Join(",", events) == "say,say,autosave,choose,say", "Dialogue prefix is missing or reordered.");
     }
 
+    private static void ChildEntryKeepsLegacyReplay()
+    {
+        var environment = (Fungus.LuaEnvironment)FormatterServices.GetUninitializedObject(typeof(Fungus.LuaEnvironment));
+        AccessTools.Field(typeof(Fungus.LuaEnvironment), "interpreter").SetValue(environment, new Script());
+        FieldInfo restorePending = AccessTools.Field(typeof(LomsRuntime), "_restoreLuaPending");
+        FieldInfo owner = AccessTools.Field(typeof(LomsRuntime), "_boundaryOwner");
+        FieldInfo currentLua = AccessTools.Field(typeof(LomsRuntime), "_currentLua");
+        object previousPending = restorePending.GetValue(null);
+        object previousOwner = owner.GetValue(null);
+        object previousLua = currentLua.GetValue(null);
+        bool loading = LomsRuntime.LoadInProgress;
+        try
+        {
+            // A parent already restored the boundary. Entering its child must
+            // not end replay merely because the old stream has no more events:
+            // the child can run unrecorded checkpoints before its first wait.
+            restorePending.SetValue(null, false);
+            owner.SetValue(null, null);
+            LomsRuntime.LoadInProgress = false;
+            WithReplayTarget("Choose:saved-child", "child", () => WithReplay(4, () =>
+            {
+                Patches.LuaManager_ExecuteLuaScript_Prefix(null, environment);
+                Check(LomsRuntime.Replaying && LomsRuntime.Cursor == 0 && LomsRuntime.Events.Count == 0,
+                    "Child entry ended replay before rebuilding its native checkpoints.");
+                Patches.CheckPointManager_Switch_Prefix("child-switch", out string switchState);
+                Check(switchState == null, "An exhausted old stream invented a recorded Switch.");
+                int switchResult = 1;
+                Patches.CheckPointManager_Switch_Postfix("child-switch", ref switchResult, switchState);
+                Patches.CheckPointManager_Condition_Prefix("child-condition", out string conditionState);
+                Check(conditionState == null, "An exhausted old stream invented a recorded Condition.");
+                bool conditionResult = true;
+                Patches.CheckPointManager_Condition_Postfix("child-condition", ref conditionResult, conditionState);
+                Check(LomsRuntime.Replaying && LomsRuntime.Cursor == 2 && LomsRuntime.Events.Count == 2,
+                    "Child checkpoints stopped or escaped the replay event stream.");
+                var first = LomsRuntime.Events[0] as NativeCheckpointEvent;
+                var second = LomsRuntime.Events[1] as NativeCheckpointEvent;
+                Check(first?.Kind == "Switch" && first.Key == "child-switch" && first.Result == "1"
+                    && second?.Kind == "Condition" && second.Key == "child-condition" && second.Result == "true",
+                    "Child-entry checkpoint results or order changed.");
+            }));
+        }
+        finally
+        {
+            restorePending.SetValue(null, previousPending);
+            owner.SetValue(null, previousOwner);
+            currentLua.SetValue(null, previousLua);
+            LomsRuntime.LoadInProgress = loading;
+        }
+    }
+
     private static Script BackStoryEnvironment()
     {
         var script = new Script();
@@ -1124,4 +1690,12 @@ internal static class Program
     private static string Quote(string text) => "\"" + text.Replace("\"", "\\\"") + "\"";
 
     private sealed class NonSerializableEvent : LomsEvent { }
+
+    private sealed class ProbeEnumerator : System.Collections.IEnumerator
+    {
+        public int Moves;
+        public object Current => null;
+        public bool MoveNext() { Moves++; return false; }
+        public void Reset() { throw new NotSupportedException(); }
+    }
 }

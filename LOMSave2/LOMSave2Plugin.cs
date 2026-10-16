@@ -14,7 +14,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.3";
+        public const string PluginVersion = "2.0.4";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
@@ -49,6 +49,8 @@ namespace LOMSave2
             LomsVerification.AutoCheck = _autoVerify.Value;
             LomsRuntime.ReplayTimeScale = _replayTimeScale.Value;
             LomsRuntime.ShowOverlay = _showOverlay.Value;
+            LomsRuntime.FastPresentation = Config.Bind("Replay", "FastPresentation", true,
+                "重演时立即复用已缓存资源并完成剧情黑幕；关闭可使用原来的等待方式").Value;
             LomsRuntime.Notify = Flash;
 
             Harmony.CreateAndPatchAll(typeof(Patches), PluginGuid);
@@ -215,7 +217,7 @@ namespace LOMSave2
             }
             if (LomsRuntime.Replaying && LomsRuntime.ShowOverlay)
             {
-                if (LomsRuntime.PausePanel != null)
+                if (!LomsRuntime.BlockingReplayOverlay)
                 {
                     // Interaction pause: keep the game UI fully visible & clickable,
                     // only show a small corner hint.
@@ -226,7 +228,8 @@ namespace LOMSave2
                         normal = { textColor = new Color(1f, 0.85f, 0.3f) },
                     };
                     GUI.Label(new Rect(Screen.width - 460, 12, 440, 30),
-                        "交互暂停中，操作完成后继续回放", hintStyle);
+                        LomsRuntime.InStoryScene ? "交互暂停中，操作完成后继续回放"
+                            : "请完成当前场景，返回剧情后继续回放", hintStyle);
                 }
                 else
                 {

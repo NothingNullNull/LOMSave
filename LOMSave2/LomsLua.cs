@@ -13,8 +13,7 @@ namespace LOMSave2
             string h = LomsRuntime.HashText(text);
             if (!string.Equals(h, e.Hash, System.StringComparison.OrdinalIgnoreCase))
             {
-                LomsRuntime.Log?.LogWarning($"[Loms] Say hash mismatch @{LomsRuntime.Cursor - 1}: {h} != {e.Hash} (positional skip still applied)");
-                LomsVerification.ReplayIssue($"对话错位 @{LomsRuntime.Cursor - 1}: {h} != {e.Hash}");
+                throw LomsRuntime.ReplayDivergence($"对话错位 @{LomsRuntime.Cursor - 1}: {h} != {e.Hash}");
             }
             return true;
         }
@@ -29,7 +28,7 @@ namespace LOMSave2
             if (!LomsRuntime.Replaying) return 0;
             ChooseEvent e = LomsRuntime.Consume<ChooseEvent>();
             if (e != null && (e.Sel < 1 || e.Sel > count))
-                LomsVerification.ReplayIssue($"选项越界：{e.Sel}/{count}");
+                throw LomsRuntime.ReplayDivergence($"选项越界：{e.Sel}/{count}");
             return e != null ? e.Sel : 0;
         }
 
@@ -57,6 +56,36 @@ namespace LOMSave2
         public static bool replaying()
         {
             return LomsRuntime.Replaying;
+        }
+
+        public static bool on_wait(string duration)
+        {
+            if (!LomsRuntime.Replaying) return false;
+            // A say/choose can call the wrapped wait internally. The outer
+            // event owns it; never insert an event before its enclosing Say.
+            if (LomsRuntime.CurrentCheckpoint != null) return true;
+            if (LomsRuntime.ReplayFormatVersion >= 5 || (LomsRuntime.Cursor < LomsRuntime.Events.Count
+                && LomsRuntime.Events[LomsRuntime.Cursor] is WaitEvent))
+            {
+                WaitEvent e = LomsRuntime.Consume<WaitEvent>();
+                if (e == null) return false;
+                if (e.Duration != duration) throw LomsRuntime.ReplayDivergence("等待错位：" + duration + " != " + e.Duration);
+                return true;
+            }
+            if (LomsRuntime.Cursor >= LomsRuntime.Events.Count && LomsRuntime.ReplayTargetCheckpoint == "Wait:" + duration
+                && LomsRuntime.IsReplayTargetWait(duration, Mortal.Core.PlayerStatManagerData.Instance.CurrentStoryScript))
+            {
+                LomsRuntime.EndReplay("saved wait reached");
+                return false;
+            }
+            LomsRuntime.RecordLegacyOrLive(new WaitEvent { Duration = duration });
+            return true;
+        }
+
+        public static void wait_done(string duration)
+        {
+            if (LomsRuntime.CurrentCheckpoint == null)
+                LomsRuntime.Record(new WaitEvent { Duration = duration });
         }
 
         public static int wait_begin(string kind, string key)
@@ -117,10 +146,12 @@ if say and choose and choosetimer and wait and math and math.random then
   end
 
   wait = function(t)
-    if loms.replaying() then return end
-    local token = loms.wait_begin('Wait', tostring(t))
+    local duration = tostring(t)
+    if loms.on_wait(duration) then return end
+    local token = loms.wait_begin('Wait', duration)
     loms_raw_wait(t)
     loms.wait_end(token)
+    loms.wait_done(duration)
   end
 
   math.random = function(a, b)
