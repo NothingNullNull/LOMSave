@@ -25,6 +25,14 @@ namespace LOMSave2
         public static GameSave BoundarySave;
         public static Dictionary<string, LomsLuaValue> BoundaryLuaGlobals;
         public static readonly List<LomsEvent> Events = new List<LomsEvent>();
+        private static LuaManager _boundaryOwner;
+
+        public static bool BindBoundaryOwner(LuaManager owner)
+        {
+            bool same = _boundaryOwner != null && _boundaryOwner == owner;
+            _boundaryOwner = owner;
+            return same && BoundarySave != null && !string.IsNullOrEmpty(BoundaryScript);
+        }
 
         // ---- load / replay ----
         public static bool Replaying;
@@ -196,6 +204,8 @@ namespace LOMSave2
             BoundarySave = boundary;
             BoundaryLuaGlobals = sc.LuaGlobals;
             _restoreLuaPending = true;
+            _boundaryOwner = null;
+            LomsLegacyBootstrap.BeginReplay(sc.BoundaryScript);
             RollPending = false;
             FateCount = 0;
             PausePanel = null;
@@ -204,6 +214,7 @@ namespace LOMSave2
             CurEnv = sc.Visual?.Env;
             Time.timeScale = ReplayTimeScale;
             DisableInput();
+            LomsReplayGuard.BeginReplay();
             Log.LogInfo($"[Loms] Replay begin: boundary={sc.BoundaryScript}, events={Events.Count}");
         }
 
@@ -219,6 +230,7 @@ namespace LOMSave2
             if (e is T t)
             {
                 Cursor++;
+                Log?.LogInfo($"[Loms] Replay progress {Cursor}/{Events.Count}: {typeof(T).Name}, script={PlayerStatManagerData.Instance.CurrentStoryScript}");
                 return t;
             }
             Log.LogWarning($"[Loms] Cursor type mismatch @{Cursor}: expected {typeof(T).Name}, got {e.GetType().Name}");
@@ -305,6 +317,9 @@ namespace LOMSave2
             BoundaryScript = null;
             BoundarySave = null;
             BoundaryLuaGlobals = null;
+            _boundaryOwner = null;
+            LomsLegacyBootstrap.Reset();
+            LomsReplayGuard.Reset();
             _restoreLuaPending = false;
             RollPending = false;
             FateCount = 0;

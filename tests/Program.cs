@@ -355,6 +355,109 @@ internal static class Program
             finally { LomsRuntime.LoadInProgress = false; LomsRuntime.Replaying = false; }
         });
         Test("actual mid-script AutoSave does not discard preceding dialogue events", MidScriptBoundary);
+        Test("legacy resource bootstrap leaves unrelated boundaries unchanged", () =>
+        {
+            const string source = "child_ran = true";
+            try
+            {
+                foreach (string boundary in new[] { null, "", "other_story", "S8300_01" })
+                {
+                    LomsLegacyBootstrap.BeginReplay(boundary);
+                    Check(ReferenceEquals(source, LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript")),
+                        "An unrelated boundary acquired legacy presentation setup.");
+                }
+            }
+            finally { LomsLegacyBootstrap.Reset(); }
+        });
+        Test("legacy resource bootstrap waits for its exact child script name", () =>
+        {
+            const string source = "child_ran = true";
+            try
+            {
+                LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+                foreach (string name in new[] { null, "", "other_story.LuaScript", "S8300_01_01", "S8300_01_01.LuaScript.extra" })
+                    Check(ReferenceEquals(source, LomsLegacyBootstrap.Prepend(source, name)),
+                        "A different Lua chunk was modified.");
+                Check(LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript") != source,
+                    "An unrelated chunk consumed the pending child setup.");
+            }
+            finally { LomsLegacyBootstrap.Reset(); }
+        });
+        Test("legacy resource bootstrap runs only once per load and reset cancels it", () =>
+        {
+            const string source = "child_ran = true";
+            try
+            {
+                LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+                string prepared = LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript");
+                Check(prepared != source && prepared.EndsWith(source),
+                    "The child script was not preserved after presentation setup.");
+                Check(ReferenceEquals(source, LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript")),
+                    "The same load injected presentation setup twice.");
+                LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+                LomsLegacyBootstrap.Reset();
+                Check(ReferenceEquals(source, LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript")),
+                    "Reset left stale setup for a later non-replay script.");
+            }
+            finally { LomsLegacyBootstrap.Reset(); }
+        });
+        Test("reading the same legacy boundary again restores presentation again", () =>
+        {
+            const string source = "child_ran = true";
+            try
+            {
+                string first = null;
+                for (int load = 0; load < 3; load++)
+                {
+                    LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+                    string prepared = LomsLegacyBootstrap.Prepend(source, "S8300_01_01.LuaScript");
+                    Check(prepared != source, "A repeated load omitted its presentation resources.");
+                    if (first == null) first = prepared;
+                    Check(prepared == first, "A repeated load accumulated or changed setup.");
+                }
+            }
+            finally { LomsLegacyBootstrap.Reset(); }
+        });
+        Test("zero-event legacy loads restore resources after replay has already ended", () =>
+        {
+            bool previous = LomsRuntime.Replaying;
+            try
+            {
+                LomsRuntime.Replaying = false;
+                Check(LomsRuntime.Events.Count == 0, "Zero-event load fixture unexpectedly contains replay events.");
+                LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+                Check(LomsLegacyBootstrap.Prepend("child_ran = true", "S8300_01_01.LuaScript") != "child_ran = true",
+                    "An empty event list suppressed the required child resources.");
+                Check(!LomsRuntime.Replaying, "Presentation setup re-entered event replay.");
+            }
+            finally { LomsLegacyBootstrap.Reset(); LomsRuntime.Replaying = previous; }
+        });
+        Test("legacy bootstrap awaits asynchronous view and actors before child execution", LegacyBootstrapResources);
+        Test("replay log callbacks queue failures without unwinding the running callback", ReplayLogCallbacks);
+        Test("recovery save postfix preserves the existing native and replay pair", () =>
+        {
+            var native = Native(1451);
+            string path = SaveNative("recovery-skipped-save", native);
+            Check(LomsSave.CompleteSave(path, native, Sidecar()), "Could not create the existing save pair.");
+            byte[] nativeBefore = File.ReadAllBytes(path);
+            byte[] replayBefore = File.ReadAllBytes(path + ".loms");
+            var oldLog = LomsRuntime.Log;
+            var log = new BepInEx.Logging.ManualLogSource("LOMSave.Tests");
+            int logCount = 0;
+            log.LogEvent += (sender, message) => logCount++;
+            try
+            {
+                Check(LomsIoContext.ManualSaveSlot == null, "Unexpected manual save scope.");
+                LomsRuntime.Log = log;
+                typeof(LomsReplayGuard).GetProperty("RecoveryRequired").GetSetMethod(true).Invoke(null, new object[] { true });
+                Patches.SaveSystem_ExecuteSaveData_Postfix(path, native);
+                Check(nativeBefore.SequenceEqual(File.ReadAllBytes(path))
+                    && File.Exists(path + ".loms") && replayBefore.SequenceEqual(File.ReadAllBytes(path + ".loms")),
+                    "A skipped native save changed or removed an existing save pair.");
+                Check(logCount == 0, "Recovery still attempted scene access or sidecar work after skipping the save.");
+            }
+            finally { LomsRuntime.Log = oldLog; log.Dispose(); LomsReplayGuard.Reset(); }
+        });
         Test("real v2 fixture deserializes and safely falls back", LegacyFixture);
         Test("Harmony targets and injected arguments match shipped game assemblies", PatchBindings);
         Test("display-only introduction replay does not activate a relationship", () =>
@@ -607,6 +710,147 @@ internal static class Program
 
     private static LomsStateSnapshot Snapshot(GameSave save) => LomsStateSnapshot.Capture(save,
         new Dictionary<string, LomsLuaValue>(), "story", "Say:test");
+
+    private static void LegacyBootstrapResources()
+    {
+        var script = new Script();
+        script.DoString(@"
+          trace={}; loaded_views={}; loaded_actors={}; portraits={}; actors={}
+          shown_view=nil; title=nil; child_runs=0
+          parent_state={money=100, relationship=30, flag=1, mission=2}
+          local function record(value) table.insert(trace, value) end
+          local function operation(kind, id, complete)
+            return coroutine.create(function()
+              record('begin:'..kind..':'..id)
+              coroutine.yield(kind..':'..id)
+              complete()
+              record('done:'..kind..':'..id)
+            end)
+          end
+          runwait=function(work)
+            while coroutine.status(work)~='dead' do
+              local ok, signal=coroutine.resume(work)
+              assert(ok, signal)
+              if coroutine.status(work)~='dead' then coroutine.yield(signal) end
+            end
+          end
+          flowcharts={
+            LoadView=function(id) return operation('view', id, function() loaded_views[id]=true end) end,
+            ShowView=function(id) assert(loaded_views[id], 'view shown before load completed'); shown_view=id; record('view:'..id) end
+          }
+          mainui={DisplayTitle=function(id) title=id end}
+          characters={
+            LoadCharacterAsset=function(id) return operation('actor', id, function() loaded_actors[id]=true end) end,
+            LoadCharacterPortrait=function(id, portrait)
+              assert(loaded_actors[id], 'portrait requested before actor load completed')
+              portraits[id]=portrait; record('portrait:'..id)
+            end,
+            Get=function(id) assert(loaded_actors[id], 'actor used before load completed'); return id end,
+            GetPortrait=function(id, portrait) assert(portraits[id]==portrait, 'portrait unavailable'); return portrait end,
+            ResetRotation=function(id) assert(actors[id], 'rotation reset before actor shown'); actors[id].rotation_reset=true end
+          }
+          stage={show=function(value) actors[value.character]=value; record('show:'..value.character) end}
+          local forbidden=function() error('presentation bootstrap executed a parent gameplay effect') end
+          statmodifymanager={Player=forbidden, SetFlag=forbidden, AddRelationship=forbidden}
+          missions={SetState=forbidden}
+        ");
+        const string child = @"
+          assert(shown_view=='kitchen' and title=='P_Kitchen_01', 'child started without kitchen')
+          assert(actors.player and actors.brother1, 'child started before both actors were ready')
+          assert(actors.player.rotation_reset and actors.brother1.rotation_reset, 'child started before actor setup finished')
+          child_runs=child_runs+1
+          table.insert(trace, 'child')
+        ";
+        try
+        {
+            LomsLegacyBootstrap.BeginReplay("S8300_01_01");
+            var coroutine = script.CreateCoroutine(script.LoadString(
+                LomsLegacyBootstrap.Prepend(child, "S8300_01_01.LuaScript")));
+            Check(coroutine.Coroutine.Resume().String == "view:kitchen", "View load did not yield asynchronously.");
+            Check(script.Globals.Get("shown_view").IsNil()
+                && script.Globals.Get("loaded_actors").Table.Get("player").IsNil()
+                && script.Globals.Get("loaded_actors").Table.Get("brother1").IsNil(),
+                "Presentation proceeded while the background was still loading.");
+            Check(coroutine.Coroutine.Resume().String == "actor:player", "Player load did not yield after the view completed.");
+            Check(script.Globals.Get("shown_view").String == "kitchen" && script.Globals.Get("title").String == "P_Kitchen_01",
+                "Background or title was not restored before actor loading.");
+            Check(script.Globals.Get("portraits").Table.Get("player").IsNil() && script.Globals.Get("child_runs").Number == 0,
+                "Player portrait or child script ran before the player finished loading.");
+            Check(coroutine.Coroutine.Resume().String == "actor:brother1", "Second actor load did not yield.");
+            Check(script.Globals.Get("portraits").Table.Get("player").String == "nervous1"
+                && !script.Globals.Get("actors").Table.Get("player").IsNil(), "Completed player presentation was not restored.");
+            Check(script.Globals.Get("portraits").Table.Get("brother1").IsNil() && script.Globals.Get("child_runs").Number == 0,
+                "Second portrait or child script ran before the second actor finished loading.");
+            coroutine.Coroutine.Resume();
+            Check(coroutine.Coroutine.State == CoroutineState.Dead && script.Globals.Get("child_runs").Number == 1,
+                "The original child script did not run exactly once after all resources completed.");
+            var actors = script.Globals.Get("actors").Table;
+            CheckActor(actors.Get("player").Table, "nervous1", "L2", "right");
+            CheckActor(actors.Get("brother1").Table, "laugh1", "R2", "left");
+            var parent = script.Globals.Get("parent_state").Table;
+            Check(parent.Get("money").Number == 100 && parent.Get("relationship").Number == 30
+                && parent.Get("flag").Number == 1 && parent.Get("mission").Number == 2,
+                "Presentation recovery changed parent gameplay state.");
+            string trace = script.DoString("return table.concat(trace, ',')").String;
+            Check(trace == "begin:view:kitchen,done:view:kitchen,view:kitchen,begin:actor:player,done:actor:player,portrait:player,show:player,begin:actor:brother1,done:actor:brother1,portrait:brother1,show:brother1,child",
+                "Asynchronous resource completion or child execution was reordered: " + trace);
+        }
+        finally { LomsLegacyBootstrap.Reset(); }
+    }
+
+    private static void CheckActor(Table actor, string portrait, string position, string facing)
+    {
+        Check(actor != null && actor.Get("portrait").String == portrait
+            && actor.Get("fromPosition").String == position && actor.Get("toPosition").String == position
+            && actor.Get("facing").String == facing && actor.Get("rotation_reset").Boolean
+            && actor.Get("fadeDuration").Number == 0 && actor.Get("moveDuration").Number == 0
+            && !actor.Get("useDefaultSettings").Boolean, "Recovered actor portrait, placement or facing differs.");
+    }
+
+    private static void ReplayLogCallbacks()
+    {
+        var pending = typeof(LomsReplayGuard).GetField("_pending", BindingFlags.Static | BindingFlags.NonPublic);
+        Check(pending != null, "Cannot observe the queued failure without executing Unity engine calls.");
+        bool replaying = LomsRuntime.Replaying;
+        bool loading = LomsRuntime.LoadInProgress;
+        int cursor = LomsRuntime.Cursor;
+        var notify = LomsRuntime.Notify;
+        int notifications = 0;
+        try
+        {
+            LomsReplayGuard.Reset();
+            LomsRuntime.Notify = _ => notifications++;
+            LomsRuntime.Replaying = false;
+            LomsReplayGuard.OnLogMessage("outside replay", null, UnityEngine.LogType.Exception);
+            Check(pending.GetValue(null) == null, "An unrelated exception outside replay was queued.");
+            LomsRuntime.Replaying = true;
+            LomsRuntime.LoadInProgress = true;
+            LomsReplayGuard.OnLogMessage("lua warning", "MoonSharp.Interpreter", UnityEngine.LogType.Warning);
+            LomsReplayGuard.OnLogMessage("unrelated renderer error", "Renderer", UnityEngine.LogType.Error);
+            LomsReplayGuard.OnLogMessage("[Loms] Replay guard stopped replay", null, UnityEngine.LogType.Exception);
+            Check(pending.GetValue(null) == null, "Warning, unrelated error or the guard's own report was treated as a replay failure.");
+            LomsReplayGuard.OnLogMessage("missing test actor", "Fungus.LuaEnvironment.LogException", UnityEngine.LogType.Error);
+            object queued = pending.GetValue(null);
+            Check(queued != null, "A Lua error was not queued for the next Update.");
+            Check(LomsRuntime.Replaying && LomsRuntime.LoadInProgress && LomsRuntime.Cursor == cursor
+                && !LomsReplayGuard.RecoveryRequired && notifications == 0,
+                "The log callback unwound replay or touched recovery UI before returning.");
+            LomsReplayGuard.OnLogMessage("later exception", null, UnityEngine.LogType.Exception);
+            Check(ReferenceEquals(queued, pending.GetValue(null)), "A later callback replaced the original failure.");
+            LomsReplayGuard.Reset();
+            Check(pending.GetValue(null) == null && !LomsReplayGuard.RecoveryRequired,
+                "Retry reset retained a stale failure.");
+            LomsReplayGuard.OnLogMessage("new replay exception", null, UnityEngine.LogType.Exception);
+            Check(pending.GetValue(null) != null, "An exception after retry could no longer be queued.");
+        }
+        finally
+        {
+            LomsReplayGuard.Reset();
+            LomsRuntime.Replaying = replaying;
+            LomsRuntime.LoadInProgress = loading;
+            LomsRuntime.Notify = notify;
+        }
+    }
 
     private static void LuaWaitCheckpoints()
     {

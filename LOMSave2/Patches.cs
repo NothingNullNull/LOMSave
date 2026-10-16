@@ -44,9 +44,10 @@ namespace LOMSave2
 
         [HarmonyPatch(typeof(LuaManager), "ExecuteLuaScript")]
         [HarmonyPrefix]
-        public static void LuaManager_ExecuteLuaScript_Prefix(LuaEnvironment ____luaEnvironment)
+        public static void LuaManager_ExecuteLuaScript_Prefix(LuaManager __instance, LuaEnvironment ____luaEnvironment)
         {
             LomsRuntime.SetLuaScript(____luaEnvironment.Interpreter);
+            bool keepRoot = LomsRuntime.BindBoundaryOwner(__instance);
             if (LomsRuntime.LoadInProgress) return;
             if (LomsRuntime.Replaying)
             {
@@ -64,10 +65,45 @@ namespace LOMSave2
             }
             // SetStartScript/AutoSave may run halfway through this same file.
             // Only the actual script entry is a restartable replay boundary.
+            // SetNextScript + Init reuses this scene's characters, background and
+            // stage. A child script is not a self-contained restart point.
+            if (keepRoot)
+            {
+                LomsRuntime.Log?.LogInfo($"[Loms] Continue script {__instance.ScriptName}, keeping scene root {LomsRuntime.BoundaryScript} ({LomsRuntime.Events.Count} events)");
+                return;
+            }
             LomsRuntime.RefreshBoundary(____luaEnvironment.Interpreter);
         }
 
+        [HarmonyPatch(typeof(LuaEnvironment), "LoadLuaFunction", new System.Type[] { typeof(string), typeof(string) })]
+        [HarmonyPrefix]
+        public static void LuaEnvironment_LoadLuaFunction_Prefix(ref string luaString, string friendlyName)
+        {
+            luaString = LomsLegacyBootstrap.Prepend(luaString, friendlyName);
+        }
+
+        [HarmonyPatch(typeof(LuaEnvironment), "LogException")]
+        [HarmonyPrefix]
+        public static void LuaEnvironment_LogException_Prefix(string decoratedMessage, string debugInfo)
+        {
+            LomsReplayGuard.OnLogMessage(decoratedMessage, "Fungus.LuaEnvironment.LogException\n" + debugInfo, LogType.Error);
+        }
+
         // ============ Save: gate + write sidecar ============
+
+        [HarmonyPatch(typeof(SaveSystem), "ExecuteSaveData")]
+        [HarmonyPrefix]
+        public static bool SaveSystem_ExecuteSaveData_RecoveryPrefix()
+        {
+            return !LomsReplayGuard.RecoveryRequired;
+        }
+
+        [HarmonyPatch(typeof(SaveSystem), "ExecuteSaveJsonData")]
+        [HarmonyPrefix]
+        public static bool SaveSystem_ExecuteSaveJsonData_RecoveryPrefix()
+        {
+            return !LomsReplayGuard.RecoveryRequired;
+        }
 
         [HarmonyPatch(typeof(SaveSystem), "SaveGameData", new System.Type[] { typeof(string) })]
         [HarmonyPrefix]
@@ -75,6 +111,11 @@ namespace LOMSave2
         {
             __state = null;
             LomsRuntime.LastSaveSucceeded = false;
+            if (LomsReplayGuard.RecoveryRequired)
+            {
+                LomsRuntime.Notify?.Invoke(LomsReplayGuard.RecoveryMessage);
+                return false;
+            }
             if (LomsRuntime.Replaying)
             {
                 LomsRuntime.Notify?.Invoke("回放中不可存档");
@@ -107,6 +148,9 @@ namespace LOMSave2
         [HarmonyPostfix]
         public static void SaveSystem_ExecuteSaveData_Postfix(string saveFile, object gameSave)
         {
+            // Harmony also runs postfixes when the recovery prefix skips the
+            // native write. Keep the existing sidecar untouched in that case.
+            if (LomsReplayGuard.RecoveryRequired) return;
             if (!(gameSave is GameSave nativeSave)) return;
             try
             {

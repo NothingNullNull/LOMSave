@@ -14,7 +14,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.2";
+        public const string PluginVersion = "2.0.3";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
@@ -22,6 +22,7 @@ namespace LOMSave2
         private ConfigEntry<bool> _showOverlay;
         private ConfigEntry<KeyboardShortcut> _verifyKey;
         private ConfigEntry<bool> _autoVerify;
+        private ConfigEntry<float> _replayTimeout;
 
         private static readonly List<string> FlashLines = new List<string>();
         private static float _flashUntil;
@@ -40,6 +41,9 @@ namespace LOMSave2
             _showOverlay = Config.Bind("Replay", "ShowOverlay", true, "回放期间显示遮罩");
             _verifyKey = Config.Bind("Hotkeys", "Verify", new KeyboardShortcut(KeyCode.F8), "对比读档后的属性和状态");
             _autoVerify = Config.Bind("Verification", "AutoCheck", true, "回放结束后自动对比保存时和当前状态");
+            _replayTimeout = Config.Bind("Replay", "NoProgressTimeoutSeconds", 45f, "回放持续无进度时停止并解锁的真实秒数；交互和战斗暂停不计入");
+            LomsReplayGuard.NoProgressTimeoutSeconds = _replayTimeout.Value;
+            Application.logMessageReceived += LomsReplayGuard.OnLogMessage;
             LomsVerification.ReportDirectory = Config.Bind("Verification", "ReportDirectory",
                 System.IO.Path.Combine(Paths.PluginPath, "LOMSave2", "verification"), "验证报告目录").Value;
             LomsVerification.AutoCheck = _autoVerify.Value;
@@ -55,6 +59,7 @@ namespace LOMSave2
         private void OnDestroy()
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            Application.logMessageReceived -= LomsReplayGuard.OnLogMessage;
         }
 
         private void Start()
@@ -77,6 +82,8 @@ namespace LOMSave2
         {
             LomsRuntime.ReplayTimeScale = _replayTimeScale.Value;
             LomsVerification.AutoCheck = _autoVerify.Value;
+            LomsReplayGuard.NoProgressTimeoutSeconds = _replayTimeout.Value;
+            LomsReplayGuard.Poll();
             LomsRuntime.Poll();
 
             if (_quickSaveKey.Value.IsDown()) TryQuickSave();
@@ -111,6 +118,11 @@ namespace LOMSave2
 
         private void TryQuickSave()
         {
+            if (LomsReplayGuard.RecoveryRequired)
+            {
+                Flash(LomsReplayGuard.RecoveryMessage);
+                return;
+            }
             bool freeScene = SceneManager.GetActiveScene().name == "Free";
             if (!LomsRuntime.InStoryScene && !freeScene)
             {
@@ -190,6 +202,17 @@ namespace LOMSave2
 
         private void OnGUI()
         {
+            if (LomsReplayGuard.RecoveryRequired)
+            {
+                var recoveryStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 20,
+                    wordWrap = true,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1f, 0.4f, 0.2f) },
+                };
+                GUI.Label(new Rect(30, Screen.height - 140, Screen.width - 60, 110), LomsReplayGuard.RecoveryMessage, recoveryStyle);
+            }
             if (LomsRuntime.Replaying && LomsRuntime.ShowOverlay)
             {
                 if (LomsRuntime.PausePanel != null)
