@@ -4,24 +4,37 @@
 
 ## 下载与安装
 
-当前版本为 **2.0.3**，适配游戏 `release_1.0.6000.2`，修复子剧情回放卡住及异常后无法退出的问题。下载见 [GitHub Releases](https://github.com/NothingNullNull/LOMSave/releases)；旧 2.0.1 不适用于本次游戏更新。
+当前版本 **2.0.4**，适配游戏 `release_1.0.6000.2`。同一套源码提供 BepInEx 5 和 6 两种构建，功能、配置及存档格式相同。[前往下载](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.4)。
 
-### 一键整合包（推荐）
+按已有加载器选择，**只安装其中一种**：
+
+| 加载器 | 一键整合包 | 普通 MOD 包 |
+| --- | --- | --- |
+| BepInEx 5.4.23.5 Windows x64 | `LOMSave-v2.0.4-BepInEx5-OneClick.zip` | `LOMSave-v2.0.4-BepInEx5.zip` |
+| BepInEx 6.0.0-be.692 Unity Mono Windows x64 | `LOMSave-v2.0.4-BepInEx6-OneClick.zip` | `LOMSave-v2.0.4-BepInEx6.zip` |
+
+没有安装过加载器，或继续使用本 MOD 2.0.0～2.0.3 的加载器，可选择 **BepInEx 5**。使用依赖 BepInEx 6 的骰子大师时，选择 **BepInEx 6**。已验证公开的“v3 修正版显示选项结果”样本；其他骰子大师版本及其他 MOD 仍需单独验证。
+
+### 一键整合包（解压安装）
 
 1. 关闭游戏并备份完整存档目录。
-2. 下载 `LOMSave-v2.0.3-OneClick.zip`，已包含 **BepInEx 5.4.23.5 Windows x64** 和本 MOD。
-3. 将 ZIP 内的全部内容直接解压覆盖到游戏根目录（`Mortal.exe` 所在文件夹），不要额外套一层文件夹。
+2. 下载上表对应的一键整合包，已包含加载器和本 MOD。
+3. 将 ZIP 内的全部内容解压到游戏根目录（`Mortal.exe` 所在文件夹），不要额外套一层文件夹。
 4. 启动游戏，通过游戏自带的存档/读档界面使用，也可使用下方快捷键。
 
-解压后，`winhttp.dll` 与 `Mortal.exe` 同级，MOD 位于 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。无需运行安装程序；整合包不附带配置和玩家存档。
+解压后，`winhttp.dll` 与 `Mortal.exe` 同级，MOD 位于 `BepInEx/plugins/LOMSave2/LOMSave2.dll`。无需运行安装程序；整合包不附带配置、玩家存档或骰子大师。
 
-**旧版升级：** 移走 `BepInEx/plugins` 下的旧 `LOMSave.dll`，若其他位置还放有 `LOMSave2.dll`，也只保留上述路径的一份。原 1.x 整合包使用 BepInEx 6，需先备份并移走旧 `BepInEx/core`，再解压整合包，避免混用 5/6 核心文件；保留自己的 `config` 和其他插件。从旧 x86 加载器升级时必须覆盖根目录的 `winhttp.dll`，仅替换 MOD DLL 不够。
+### 已安装对应加载器
 
-### 已安装 BepInEx 的用户
+使用上表对应的普通包，解压到游戏根目录即可。也可下载 `LOMSave2-BepInEx5.dll` 或 `LOMSave2-BepInEx6.dll`，**改名为 `LOMSave2.dll`** 后放入 `BepInEx/plugins/LOMSave2/`。移走旧 `LOMSave.dll`，并确保插件目录中只有一份 `LOMSave2.dll`，不要同时装两种构建。
 
-确认加载器为 **BepInEx 5.4.23.5 Windows x64（Mono）** 后，可下载普通包 `LOMSave-v2.0.3.zip` 解压到游戏根目录，或将独立 `LOMSave2.dll` 放入上述插件目录。需要单独安装加载器时，前往 [BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 选择 `BepInEx_win_x64_5.4.23.5.zip`。
+### 切换 BepInEx 5 / 6
 
-每次发布均提供一键整合包、普通 MOD 包、独立 DLL 和 `SHA256SUMS.txt`。普通包只含 MOD 和说明；整合包另含 BepInEx、第三方许可及相应源码。两种包均不包含游戏程序集、游戏资源或玩家存档。
+关闭游戏，备份整个 `BepInEx` 文件夹及根目录的 `winhttp.dll`、`doorstop_config.ini`、`.doorstop_version`。将旧 `BepInEx/core`、`BepInEx/cache` 移到游戏目录之外，再解压目标版本的一键包；保留自己的 `config`，其他插件须匹配目标加载器。回退时恢复整套旧加载器和对应 MOD。
+
+5/6 核心不能混装，单改 `target_assembly` 无法完成迁移。旧骰子大师整合包可能附带 x86 加载器，当前游戏为 x64，不要覆盖回旧 `winhttp.dll`。BepInEx 6 以 [官方 692 构建](https://builds.bepinex.dev/projects/bepinex_be/692/BepInEx-Unity.Mono-win-x64-6.0.0-be.692%2B851521c.zip) 为基线，不保证其他开发构建或 IL2CPP 包可用。
+
+每次发布均提供两种一键包、两种普通包、两个独立 DLL 和 `SHA256SUMS.txt`。普通包只含 MOD 和说明；整合包另含对应 BepInEx、第三方许可及相应源码。均不包含游戏程序集、游戏资源或玩家存档。
 
 ## 使用方式
 
@@ -70,6 +83,7 @@
 
 - 原生 `.dat` 仍由游戏保存；剧情附加档为同名 `.dat.loms`，需要一起备份、移动。
 - 当前附加档格式为 4，接受格式 3。旧格式 3 若缺少命运面板记录，需要按原选择人工确认，完成回放后重新保存，才会补入记录。
+- 在 BepInEx 5 / 6 构建之间切换不改变存档格式、插件 GUID 和程序集身份，已有 2.0.x 的 `.dat` / `.dat.loms` 无需转换。第三方 MOD 的数值及选项修改仍需用存档副本验证。
 - 格式 2、损坏或配对不一致的附加档回退到原生读取；恢复点可能早于保存时的对话位置。
 - **旧仓库 1.x 的 `.ss` / `.ss.json` 不会自动转换为 `.loms`。** 保留完整旧档备份，先核对原生读档后的进度，再用 2.0 重新保存；不能保证旧 MOD 的精确对话停点。
 - 开发过程中的 2.1.x～2.3.x 已整合为此次正式发布的 **2.0.0**；插件 GUID、程序集身份与附加档格式保持兼容。
@@ -80,26 +94,28 @@
 
 ## 从源码编译
 
-需要 .NET SDK、本地游戏与 BepInEx 5 Mono，加载器位数须与游戏一致（当前新版为 x64）。依赖程序集从游戏安装目录读取，不随仓库分发。以下命令在仓库根目录执行，将占位符替换为实际游戏安装目录。
+需要 .NET SDK、本地游戏程序集和对应的 BepInEx 依赖。默认构建 BepInEx 5；指定 `BepInExVersion=6` 可构建 6。`BepInExDir` 可单独指定加载器的 `core` 目录，默认使用指定游戏目录下的 `BepInEx/core`。
 
 ```powershell
 $gameDir = '<游戏安装目录的完整路径>'
-dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false "-p:GameDir=$gameDir"
+dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false "-p:GameDir=$gameDir" -p:BepInExVersion=5
+dotnet build .\LOMSave2\LOMSave2.csproj -c Release -p:Deploy=false "-p:GameDir=$gameDir" -p:BepInExVersion=6 '-p:BepInExDir=<BepInEx 6 core 目录>'
 ```
 
-输出：`LOMSave2/bin/Release/LOMSave2.dll`。省略 `-p:Deploy=false` 会将 DLL 复制到指定游戏目录；仅检查编译时保留该参数。
+输出分别为 `LOMSave2/bin/bepinex5/Release/LOMSave2.dll` 和 `LOMSave2/bin/bepinex6/Release/LOMSave2.dll`，中间文件也独立。省略 `-p:Deploy=false` 会复制到指定游戏目录；仅检查编译时保留该参数。
 
 运行自动检查与生成发布包：
 
 ```powershell
 python -m pip install -r .\tools\requirements.txt
 $gameDir = '<游戏安装目录的完整路径>'
-.\tests\Run-Tests.ps1 -GameDir $gameDir
+.\tests\Run-Tests.ps1 -GameDir $gameDir -BepInExVersion 5
+.\tests\Run-Tests.ps1 -GameDir $gameDir -BepInExVersion 6 -BepInExDir '<BepInEx 6 core 目录>'
 .\tools\Build-Release.ps1 -GameDir $gameDir
 ```
 
-测试缺少剧情资料时会从本地游戏提取两个用例，提取文件保留在被忽略的 `assets/story/`。发布包默认输出到 `dist/`，构建不部署到游戏。构建时自动生成两种 ZIP、独立 DLL 和校验文件；首次会下载并校验官方 BepInEx 与 Doorstop 源码，缓存保留在 `.work/bundle-cache/`，后续可离线复用。将全部产物同步至 `release/` 后，发布流程会校验并上传两种包，缺少整合包时不会发布。测试范围和限制见 [tests/README.md](tests/README.md)。
+测试缺少剧情资料时会从本地游戏提取两个用例，保留在被忽略的 `assets/story/`。发布构建自动准备两套官方加载器依赖，不要求游戏目录已安装加载器；只读取游戏程序集，不部署到游戏。首次下载会校验固定哈希，缓存保留在 `.work/bundle-cache/`，后续可离线复用。
 
-**发布新版本：** 合并源码后仍需在有游戏依赖的本地环境运行 `tools/Build-Release.ps1 -GameDir $gameDir -OutputDir ./release`，提交新版本的两种 ZIP、`LOMSave2.dll` 和 `SHA256SUMS.txt`。同时更新 README 的下载版本，并将更新记录标题改为准确的 `## 版本号`（去掉“未发布”）。GitHub Action 只校验和上传这些产物，不在云端编译游戏 MOD；只改源码版本号或重新运行旧 Action 不会自动生成新包。
+**发布新版本：** 更新版本号、README 与 CHANGELOG，在有游戏依赖的本地环境运行 `tools/Build-Release.ps1 -GameDir $gameDir -OutputDir ./release`，提交生成的全部 **7 个文件**（四个 ZIP、两个 DLL、一个校验文件）。更新记录标题须为准确的 `## 版本号`。GitHub Action 校验两套包齐全、组件和哈希一致后才发布，不在云端编译游戏 MOD；只改源码版本号或重跑旧 Action 不会生成新包。
 
-源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。版本说明见 [CHANGELOG.md](CHANGELOG.md)。
+源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。测试范围见 [tests/README.md](tests/README.md)，双版本验证见 [发布验证记录](docs/2026-10-16双加载器发布验证.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)。

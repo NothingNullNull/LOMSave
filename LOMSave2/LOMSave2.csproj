@@ -9,7 +9,6 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
-    <GameDir Condition="'$(GameDir)' == ''">E:\SteamLibrary\steamapps\common\LegendOfMortal</GameDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,12 +23,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="BepInEx">
-      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
+    <Reference Include="BepInEx" Condition="'$(BepInExVersion)' == '5'">
+      <HintPath>$(BepInExDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Core" Condition="'$(BepInExVersion)' == '6'">
+      <HintPath>$(BepInExDir)\BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Mono" Condition="'$(BepInExVersion)' == '6'">
+      <HintPath>$(BepInExDir)\BepInEx.Unity.Mono.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath>
+      <HintPath>$(BepInExDir)\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Mortal.Core">
@@ -85,6 +92,12 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <Target Name="ValidateBepInEx" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(BepInExVersion)' != '5' And '$(BepInExVersion)' != '6'" Text="BepInExVersion 只支持 5 或 6。" />
+    <Error Condition="'$(BepInExVersion)' == '5' And !Exists('$(BepInExDir)\BepInEx.dll')" Text="BepInEx 5 构建需要 BepInEx.dll，请检查 BepInExDir。" />
+    <Error Condition="'$(BepInExVersion)' == '6' And (!Exists('$(BepInExDir)\BepInEx.Core.dll') Or !Exists('$(BepInExDir)\BepInEx.Unity.Mono.dll'))" Text="BepInEx 6 构建需要 Core 和 Unity.Mono 程序集，请检查 BepInExDir。" />
+  </Target>
 
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Deploy)' != 'false'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\plugins\LOMSave2\" />

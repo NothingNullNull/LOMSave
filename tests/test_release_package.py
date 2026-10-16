@@ -15,18 +15,18 @@ import package_bundle as bundle
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--release-dir", type=Path, default=ROOT / "dist")
-parser.add_argument("--version", default="2.0.2")
+parser.add_argument("--version", default="2.0.4")
 OPTIONS, REMAINING = parser.parse_known_args()
 
 
-class ReleasePackageTests(unittest.TestCase):
+class ReleasePackageChecks:
     def setUp(self):
         (ROOT / ".work").mkdir(exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(prefix="package-tests-", dir=ROOT / ".work")
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
-        self.archive = f"LOMSave-v{OPTIONS.version}-OneClick.zip"
-        self.names = ["LOMSave2.dll", f"LOMSave-v{OPTIONS.version}.zip", self.archive]
+        self.dll, self.mod, self.archive = bundle.asset_names(OPTIONS.version, self.major)
+        self.names = bundle.release_names(OPTIONS.version)
         for name in self.names + ["SHA256SUMS.txt"]:
             shutil.copyfile(OPTIONS.release_dir / name, self.directory / name)
 
@@ -81,8 +81,9 @@ class ReleasePackageTests(unittest.TestCase):
             self.verify()
 
     def test_wrong_loader_or_mod_is_rejected_even_with_updated_checksums(self):
-        for name in ("winhttp.dll", "BepInEx/core/BepInEx.dll", bundle.MOD_DLL,
-                     bundle.SOURCE_PATH, bundle.DOCS + "第三方许可/BepInEx.txt"):
+        core = "BepInEx.dll" if self.major == 5 else "BepInEx.Core.dll"
+        for name in ("winhttp.dll", "BepInEx/core/" + core, bundle.MOD_DLL,
+                     *bundle.source_assets(bundle.components(self.major)), bundle.DOCS + "第三方许可/BepInEx.txt"):
             with self.subTest(file=name):
                 files = bundle.read_zip(OPTIONS.release_dir / self.archive)
                 files[name] = b"wrong version or corrupt component"
@@ -100,7 +101,9 @@ class ReleasePackageTests(unittest.TestCase):
                 self.rewrite_bundle(files)
                 with self.assertRaisesRegex(ValueError, "layout differs"):
                     self.verify()
+        other_core = "BepInEx.Core.dll" if self.major == 5 else "BepInEx.dll"
         for name in ("Mortal_Data/Managed/Mortal.Core.dll", "BepInEx/config/player.cfg",
+                     "BepInEx/core/" + other_core,
                      "BepInEx/plugins/LOMSave.dll", "Install.cmd", "save.dat", "../escape.txt"):
             with self.subTest(extra=name):
                 files = dict(original)
@@ -116,10 +119,47 @@ class ReleasePackageTests(unittest.TestCase):
             self.verify()
 
     def test_corrupt_cached_download_is_rejected(self):
-        spec = bundle.components()["bepinex"]
+        spec = bundle.components(self.major)["bepinex"]
         (self.directory / spec["name"]).write_bytes(b"bad cached ZIP")
         with self.assertRaisesRegex(ValueError, "Cache hash mismatch"):
             bundle.cached_download(spec, self.directory)
+
+    def test_other_loader_bundle_is_rejected(self):
+        other_bundle = bundle.asset_names(OPTIONS.version, 11 - self.major)[2]
+        self.rewrite_bundle(bundle.read_zip(OPTIONS.release_dir / other_bundle))
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_missing_entire_variant_is_rejected(self):
+        removed = set(bundle.asset_names(OPTIONS.version, self.major))
+        for name in removed:
+            (self.directory / name).unlink()
+        (self.directory / "SHA256SUMS.txt").write_text("".join(
+            f"{bundle.sha256((self.directory / n).read_bytes())}  {n}\n"
+            for n in self.names if n not in removed), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "must include both"):
+            self.verify()
+
+    def test_same_dll_cannot_be_published_for_both_loaders(self):
+        other_dll = bundle.asset_names(OPTIONS.version, 11 - self.major)[0]
+        wrong_dll = (self.directory / other_dll).read_bytes()
+        (self.directory / self.dll).write_bytes(wrong_dll)
+        mod = bundle.read_zip(self.directory / self.mod)
+        mod[bundle.MOD_DLL] = wrong_dll
+        bundle.write_zip(self.directory / self.mod, mod)
+        files = bundle.read_zip(self.directory / self.archive)
+        files[bundle.MOD_DLL] = wrong_dll
+        self.rewrite_bundle(files)
+        with self.assertRaisesRegex(ValueError, "separately compiled"):
+            self.verify()
+
+
+class BepInEx5PackageTests(ReleasePackageChecks, unittest.TestCase):
+    major = 5
+
+
+class BepInEx6PackageTests(ReleasePackageChecks, unittest.TestCase):
+    major = 6
 
 
 if __name__ == "__main__":

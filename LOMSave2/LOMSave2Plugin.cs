@@ -2,6 +2,10 @@ using System.Collections.Generic;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+#if BEPINEX6
+using BepInEx.Unity.Mono;
+using BepInEx.Unity.Mono.Configuration;
+#endif
 using HarmonyLib;
 using Mortal.Core;
 using Mortal.Free;
@@ -14,7 +18,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.3";
+        public const string PluginVersion = "2.0.4";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
@@ -64,7 +68,7 @@ namespace LOMSave2
 
         private void Start()
         {
-            Logger.LogInfo($"[Loms] Hotkeys ready: save={_quickSaveKey.Value}, load={_quickLoadKey.Value}, verify={_verifyKey.Value}; input={UnityInput.Current.GetType().Name}");
+            Logger.LogInfo($"[Loms] Hotkeys ready: save={_quickSaveKey.Value}, load={_quickLoadKey.Value}, verify={_verifyKey.Value}");
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)

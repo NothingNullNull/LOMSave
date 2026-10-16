@@ -3,7 +3,6 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net46</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <GameDir Condition="'$(GameDir)' == ''">E:\SteamLibrary\steamapps\common\LegendOfMortal</GameDir>
     <Deploy>false</Deploy>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
@@ -14,8 +13,10 @@
     <Reference Include="Mortal.Core"><HintPath>$(GameDir)\Mortal_Data\Managed\Mortal.Core.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Mortal.Story"><HintPath>$(GameDir)\Mortal_Data\Managed\Mortal.Story.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameDir)\Mortal_Data\Managed\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="BepInEx"><HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="0Harmony"><HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx" Condition="'$(BepInExVersion)' == '5'"><HintPath>$(BepInExDir)\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Core" Condition="'$(BepInExVersion)' == '6'"><HintPath>$(BepInExDir)\BepInEx.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Unity.Mono" Condition="'$(BepInExVersion)' == '6'"><HintPath>$(BepInExDir)\BepInEx.Unity.Mono.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExDir)\0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="netstandard"><HintPath>$(GameDir)\Mortal_Data\Managed\netstandard.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

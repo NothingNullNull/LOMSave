@@ -5,10 +5,11 @@
 ```powershell
 python -m pip install -r .\tools\requirements.txt
 $gameDir = '<游戏安装目录的完整路径>'
-.\tests\Run-Tests.ps1 -GameDir $gameDir
+.\tests\Run-Tests.ps1 -GameDir $gameDir -BepInExVersion 5
+.\tests\Run-Tests.ps1 -GameDir $gameDir -BepInExVersion 6 -BepInExDir '<BepInEx 6 core 目录>'
 ```
 
-`-Python` 可指定 Python 可执行文件。需要 .NET SDK、本地游戏程序集和与游戏位数一致的 BepInEx 5 Mono（新版为 x64）；测试构建始终禁用自动部署，不读取或修改玩家存档。
+`-Python` 可指定 Python 可执行文件。需要 .NET SDK、本地游戏程序集和对应的 BepInEx 5.4.23.5 或 6.0.0-be.692 Unity Mono（当前为 x64）；测试构建始终禁用自动部署，不读取或修改玩家存档。
 
 缺少剧情资料时，入口脚本从本地游戏提取 `back_02_501`、`ch2_4_5_3` 到 `assets/story/`，不分发游戏脚本。游戏更新后可手动重新提取：
 
@@ -17,7 +18,7 @@ $gameDir = '<游戏安装目录的完整路径>'
 python .\tools\Extract-TestStories.py --game-dir $gameDir
 ```
 
-当前基线为 56 项通过、35 个补丁方法目标及参数检查，使用游戏 `release_1.0.6000.2`。测试入口会输出本次测试资料与 `results.txt` 的位置。
+当前基线为两种构建各 57 项通过、35 个补丁方法目标及参数检查，使用游戏 `release_1.0.6000.2`。测试入口会输出本次测试资料与 `results.txt` 的位置。
 
 ## 覆盖范围
 
@@ -39,14 +40,14 @@ python .\tools\Extract-TestStories.py --game-dir $gameDir
 
 ## 发布包检查
 
-执行 `tools/Build-Release.ps1` 时自动检查两种包内 DLL、整合包根目录结构、官方 BepInEx 全部文件、第三方许可与源码及发布校验文件；失败会阻止发布。
+执行 `tools/Build-Release.ps1` 时自动检查 5/6 两套普通包与一键包内 DLL、整合包根目录结构、官方 BepInEx 全部文件、第三方许可与源码及发布校验文件；失败会阻止发布。
 
 ```powershell
-python .\tools\package_bundle.py verify --release-dir .\dist --version 2.0.3
-python .\tests\test_release_package.py --release-dir .\dist --version 2.0.3
+python .\tools\package_bundle.py verify --release-dir .\dist --version 2.0.4
+python .\tests\test_release_package.py --release-dir .\dist --version 2.0.4
 ```
 
-将版本号替换为本次发布版本。发布包测试在项目 `.work/` 内模拟解压覆盖，确认已有配置、其他插件和存档标记保持原样；同时检查缺包、缺少校验项、错误组件、重复 MOD、个人文件和多余外层目录会被拒绝。此检查不代替实际游戏启动验证。
+将版本号替换为本次发布版本。发布包测试在项目 `.work/` 内模拟解压覆盖，确认已有配置、其他插件和存档标记保持原样；同时检查缺包、缺少校验项、错误组件、重复 MOD、个人文件和多余外层目录会被拒绝。共 22 项，包含缺少整套构建、两种 DLL 相同、错用另一套加载器的拒绝检查。此检查不代替实际游戏启动验证。
 
 ## 限制
 
@@ -57,3 +58,5 @@ python .\tests\test_release_package.py --release-dir .\dist --version 2.0.3
 实机检查见 [游戏更新兼容性检查清单](../游戏更新兼容性检查清单.md)。`FreeRandomState` 不计入差异，原值仍保留在完整报告并标记为已忽略。
 
 2026-10-16 的六轮隔离实机回归覆盖旧子剧情重复读取、旧边界重新保存读取、新父入口完整回放，以及真实人物资源异常后的解锁、禁止保存与重试。成功读取均比较 3367 项状态，有效差异为 0；PASS 按现行规则排除时间戳和 `FreeRandomState`，不代表这些字段逐字节一致。此次实机验证了运行异常退出路径，默认 45 秒无进度超时路径尚未实测。详见 [回放卡死修复记录](../docs/2026-10-16回放卡死修复.md)。
+
+2.0.4 的双加载器、实际快捷键与跨加载器存档实测见 [双加载器发布验证](../docs/2026-10-16双加载器发布验证.md)。

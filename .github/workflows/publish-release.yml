@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - release/**
+      - Directory.Build.props
       - tools/package_bundle.py
       - tools/bundle/**
       - .github/workflows/publish-release.yml
@@ -42,25 +43,30 @@ jobs:
           fetch_file LOMSave2/LOMSave2Plugin.cs Plugin.cs
           version="$(python3 -c 'import pathlib,re; print(re.search(r"PluginVersion = \"(\d+\.\d+\.\d+)\"", pathlib.Path("Plugin.cs").read_text()).group(1))')"
           tag="v$version"
-          archive="LOMSave-v$version.zip"
-          bundle="LOMSave-v$version-OneClick.zip"
+          assets=(SHA256SUMS.txt)
+          for major in 5 6; do
+            assets+=("LOMSave2-BepInEx$major.dll" "LOMSave-v$version-BepInEx$major.zip" "LOMSave-v$version-BepInEx$major-OneClick.zip")
+          done
           gh api "repos/$GITHUB_REPOSITORY/contents/release?ref=$GITHUB_SHA" \
             --jq '.[].name' > available-files.txt
           missing=false
-          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
+          for file in "${assets[@]}"; do
             if ! grep -Fxq -- "$file" available-files.txt; then
-              echo "::error file=release/$file::Missing release artifact: $file. Build this version locally with tools/Build-Release.ps1 -OutputDir ./release and commit all four release files."
+              echo "::error file=release/$file::Missing release artifact: $file. Build both variants locally with tools/Build-Release.ps1 -OutputDir ./release and commit all seven release files."
               missing=true
             fi
           done
           if [[ "$missing" == true ]]; then exit 1; fi
-          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
+          for file in "${assets[@]}"; do
             fetch_file "release/$file" "$file"
           done
           sha256sum --check SHA256SUMS.txt
           mkdir -p tools/bundle
           fetch_file tools/package_bundle.py tools/package_bundle.py
-          fetch_file tools/bundle/components.json tools/bundle/components.json
+          for major in 5 6; do
+            mkdir -p "tools/bundle/bepinex$major"
+            fetch_file "tools/bundle/bepinex$major/components.json" "tools/bundle/bepinex$major/components.json"
+          done
           python3 tools/package_bundle.py verify --release-dir . --version "$version"
           fetch_file CHANGELOG.md CHANGELOG.md
           python3 - "$version" <<'PY'
@@ -72,8 +78,8 @@ jobs:
           notes = changelog.split(heading, 1)[1].split("\n## ", 1)[0].strip()
           if not notes:
               sys.exit(f"::error file=CHANGELOG.md::Release notes for {sys.argv[1]} are empty.")
-          notes += f"\n\n推荐下载 `LOMSave-v{sys.argv[1]}-OneClick.zip`，内含 BepInEx 5.4.23.5 Windows x64；关闭游戏后直接将全部内容解压覆盖到游戏根目录（Mortal.exe 所在文件夹），无需运行安装程序。"
-          notes += "\n\n已安装对应加载器的用户可选普通 MOD 包或独立 DLL。旧 BepInEx 6 用户先备份并移走旧 core 目录，避免混用核心文件；移走旧 LOMSave.dll，只保留一份 LOMSave2.dll。从旧 x86 加载器升级时须同时覆盖 winhttp.dll。"
+          notes += f"\n\n本次同时提供两种构建，功能与存档格式相同：\n\n- BepInEx 5.4.23.5 用户：`LOMSave-v{sys.argv[1]}-BepInEx5-OneClick.zip`。\n- BepInEx 6.0.0-be.692 用户，以及使用对应骰子大师的玩家：`LOMSave-v{sys.argv[1]}-BepInEx6-OneClick.zip`。"
+          notes += "\n\n一键包内含对应 Windows x64 Mono 加载器，解压到 Mortal.exe 所在目录即可；已有对应加载器可选同名普通包。独立 DLL 安装时改名为 LOMSave2.dll，放入 BepInEx/plugins/LOMSave2，只保留一份。切换加载器主版本前备份整套加载器并将旧 core/cache 移出游戏目录，5/6 核心和两种 MOD DLL 不能混装。无需转换现有 .dat/.dat.loms。"
           notes += "\n\n安装与兼容性说明：[README](https://github.com/NothingNullNull/LOMSave#readme)。\n"
           pathlib.Path("RELEASE_NOTES.md").write_text(notes, encoding="utf-8")
           PY
@@ -95,22 +101,24 @@ jobs:
               exit 1
             fi
             mkdir -p baseline
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-              --pattern LOMSave2.dll --dir baseline
-            cmp LOMSave2.dll baseline/LOMSave2.dll
+            for major in 5 6; do
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                --pattern "LOMSave2-BepInEx$major.dll" --dir baseline
+              cmp "LOMSave2-BepInEx$major.dll" "baseline/LOMSave2-BepInEx$major.dll"
+            done
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --draft --title "LOMSave $version" \
               --notes-file RELEASE_NOTES.md
           fi
-          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
+          for file in "${assets[@]}"; do
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
               --jq '.assets[].name' | grep -Fxq -- "$file"; then
               mkdir -p existing
               gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
                 --pattern "$file" --dir existing
               if ! cmp -s "$file" "existing/$file"; then
-                if [[ "$file" == LOMSave2.dll ]]; then
+                if [[ "$file" == *.dll ]]; then
                   echo "Published DLL differs; publish a new version instead."
                   exit 1
                 fi
