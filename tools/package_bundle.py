@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = Path(__file__).resolve().parent / "bundle"
 DOCS = "LOMSave2说明/"
 MOD_DLL = "BepInEx/plugins/LOMSave2/LOMSave2.dll"
-SOURCE_PATH = DOCS + "第三方源码/UnityDoorstop-4.5.0-source.zip"
+VARIANTS = (5, 6)
 
 
 def require(condition, message):
@@ -25,8 +25,27 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def components():
-    return json.loads((RESOURCES / "components.json").read_text(encoding="utf-8"))
+def resources(major):
+    require(major in VARIANTS, "BepInEx version must be 5 or 6")
+    return RESOURCES / f"bepinex{major}"
+
+
+def components(major):
+    return json.loads((resources(major) / "components.json").read_text(encoding="utf-8"))
+
+
+def asset_names(version, major):
+    return (f"LOMSave2-BepInEx{major}.dll", f"LOMSave-v{version}-BepInEx{major}.zip",
+            f"LOMSave-v{version}-BepInEx{major}-OneClick.zip")
+
+
+def release_names(version):
+    return [name for major in VARIANTS for name in asset_names(version, major)]
+
+
+def source_assets(spec):
+    return {DOCS + "第三方源码/" + spec[key]["name"]: spec[key]
+            for key in ("doorstop_source", "bepinex_source") if key in spec}
 
 
 def read_zip(path):
@@ -89,7 +108,7 @@ def check_mod(files, dll):
 def expected_extras(spec):
     result = {loader_path(name): digest for name, digest in spec["bepinex"]["files"].items()}
     result.update(spec["notices"])
-    result[SOURCE_PATH] = spec["doorstop_source"]["sha256"]
+    result.update({path: asset["sha256"] for path, asset in source_assets(spec).items()})
     return result
 
 
@@ -104,21 +123,36 @@ def check_bundle(bundle, mod, spec):
         require(sha256(bundle[name]) == digest, f"Bundled component hash mismatch: {name}")
 
 
-def build_bundle(mod_package, output, cache):
-    spec = components()
-    mod = read_zip(mod_package)
-    require(MOD_DLL in mod, "MOD DLL is missing")
-    check_mod(mod, mod[MOD_DLL])
+def read_loader(spec, cache):
     loader = read_zip(cached_download(spec["bepinex"], cache))
     require({name: sha256(data) for name, data in loader.items()} == spec["bepinex"]["files"],
             "Official BepInEx file list differs from pinned metadata")
-    source = cached_download(spec["doorstop_source"], cache)
+    return loader
+
+
+def prepare_loader(major, output, cache):
+    require(not output.exists(), "Loader output must be a new directory to avoid mixing versions")
+    loader = read_loader(components(major), cache)
+    for name, data in loader.items():
+        path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    print(f"Official BepInEx {major} prepared: {output}")
+
+
+def build_bundle(mod_package, output, cache, major):
+    spec = components(major)
+    mod = read_zip(mod_package)
+    require(MOD_DLL in mod, "MOD DLL is missing")
+    check_mod(mod, mod[MOD_DLL])
+    loader = read_loader(spec, cache)
     bundle = dict(mod)
     bundle.update({loader_path(name): data for name, data in loader.items()})
-    bundle[DOCS + "第三方组件.md"] = (RESOURCES / "THIRD-PARTY.md").read_bytes()
-    for path in (RESOURCES / "licenses").glob("*.txt"):
+    bundle[DOCS + "第三方组件.md"] = (resources(major) / "THIRD-PARTY.md").read_bytes()
+    for path in (resources(major) / "licenses").glob("*.txt"):
         bundle[DOCS + "第三方许可/" + path.name] = path.read_bytes()
-    bundle[SOURCE_PATH] = source.read_bytes()
+    for path, asset in source_assets(spec).items():
+        bundle[path] = cached_download(asset, cache).read_bytes()
     check_bundle(bundle, mod, spec)
     output.parent.mkdir(parents=True, exist_ok=True)
     write_zip(output, bundle)
@@ -127,7 +161,7 @@ def build_bundle(mod_package, output, cache):
 
 def verify_release(directory, version):
     require(re.fullmatch(r"\d+\.\d+\.\d+", version), "Invalid release version")
-    names = {"LOMSave2.dll", f"LOMSave-v{version}.zip", f"LOMSave-v{version}-OneClick.zip"}
+    names = set(release_names(version))
     checksums = {}
     for line in (directory / "SHA256SUMS.txt").read_text(encoding="utf-8-sig").splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
@@ -135,13 +169,19 @@ def verify_release(directory, version):
         digest, name = match.groups()
         require(name in names and name not in checksums, f"Unexpected/duplicate checksum: {name}")
         checksums[name] = digest
-    require(set(checksums) == names, "Release must include DLL, MOD ZIP and OneClick ZIP checksums")
+    require(set(checksums) == names, "Release must include both BepInEx variants: DLL, MOD ZIP and OneClick ZIP checksums")
     for name, digest in checksums.items():
         require(sha256((directory / name).read_bytes()) == digest, f"Release hash mismatch: {name}")
-    mod = read_zip(directory / f"LOMSave-v{version}.zip")
-    check_mod(mod, (directory / "LOMSave2.dll").read_bytes())
-    check_bundle(read_zip(directory / f"LOMSave-v{version}-OneClick.zip"), mod, components())
-    print(f"Release {version}: DLL, MOD ZIP, OneClick ZIP, layout and official components verified")
+    dlls = []
+    for major in VARIANTS:
+        dll_name, mod_name, bundle_name = asset_names(version, major)
+        dll = (directory / dll_name).read_bytes()
+        dlls.append(dll)
+        mod = read_zip(directory / mod_name)
+        check_mod(mod, dll)
+        check_bundle(read_zip(directory / bundle_name), mod, components(major))
+    require(dlls[0] != dlls[1], "BepInEx 5 and 6 require separately compiled DLLs")
+    print(f"Release {version}: both BepInEx variants, six assets, layout and official components verified")
 
 
 def main():
@@ -151,12 +191,19 @@ def main():
     build.add_argument("--mod-package", type=Path, required=True)
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--cache-dir", type=Path, default=ROOT / ".work" / "bundle-cache")
+    build.add_argument("--bepinex", type=int, choices=VARIANTS, required=True)
+    prepare = commands.add_parser("prepare")
+    prepare.add_argument("--bepinex", type=int, choices=VARIANTS, required=True)
+    prepare.add_argument("--output", type=Path, required=True)
+    prepare.add_argument("--cache-dir", type=Path, default=ROOT / ".work" / "bundle-cache")
     verify = commands.add_parser("verify")
     verify.add_argument("--release-dir", type=Path, required=True)
     verify.add_argument("--version", required=True)
     args = parser.parse_args()
     if args.command == "build":
-        build_bundle(args.mod_package, args.output, args.cache_dir)
+        build_bundle(args.mod_package, args.output, args.cache_dir, args.bepinex)
+    elif args.command == "prepare":
+        prepare_loader(args.bepinex, args.output, args.cache_dir)
     else:
         verify_release(args.release_dir, args.version)
 

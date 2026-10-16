@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <BepInExVersion Condition="'$(BepInExVersion)' == ''">5</BepInExVersion>
+    <GameDir Condition="'$(GameDir)' == ''">E:\SteamLibrary\steamapps\common\LegendOfMortal</GameDir>
+    <BepInExDir Condition="'$(BepInExDir)' == ''">$(GameDir)\BepInEx\core</BepInExDir>
+    <DefineConstants Condition="'$(BepInExVersion)' == '6'">$(DefineConstants);BEPINEX6</DefineConstants>
+    <BaseOutputPath>bin\bepinex$(BepInExVersion)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj\bepinex$(BepInExVersion)\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

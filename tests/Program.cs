@@ -19,6 +19,7 @@ internal static class Program
     private static string _gameDir;
     private static string _root;
     private static string _output;
+    private static string _bepinexDir;
     private static int _passed;
     private static int _failed;
 
@@ -26,25 +27,26 @@ internal static class Program
     {
         if (args.Length < 3)
         {
-            Console.Error.WriteLine("Usage: LOMSave2.Tests <game-directory> <project-directory> <test-output-directory>");
+            Console.Error.WriteLine("Usage: LOMSave2.Tests <game-directory> <project-directory> <test-output-directory> [bepinex-core-directory]");
             return 2;
         }
         _gameDir = Path.GetFullPath(args[0]);
         _root = Path.GetFullPath(args[1]);
         _output = Path.GetFullPath(args[2]);
+        _bepinexDir = args.Length >= 4 ? Path.GetFullPath(args[3]) : Path.Combine(_gameDir, "BepInEx/core");
         AppDomain.CurrentDomain.AssemblyResolve += ResolveGameAssembly;
         Directory.CreateDirectory(_output);
-        if (args.Length == 5 && args[3] == "--legacy") return WriteLegacyFixture(args[4]);
-        if (args.Length == 5 && args[3] == "--legacy3") return WriteLegacy3Fixture(args[4]);
+        if (args.Length == 6 && args[4] == "--legacy") return WriteLegacyFixture(args[5]);
+        if (args.Length == 6 && args[4] == "--legacy3") return WriteLegacy3Fixture(args[5]);
         return Run();
     }
 
     private static Assembly ResolveGameAssembly(object sender, ResolveEventArgs args)
     {
         string filename = new AssemblyName(args.Name).Name + ".dll";
-        foreach (string folder in new[] { "Mortal_Data/Managed", "BepInEx/core" })
+        foreach (string folder in new[] { Path.Combine(_gameDir, "Mortal_Data/Managed"), _bepinexDir })
         {
-            string path = Path.Combine(_gameDir, folder, filename);
+            string path = Path.Combine(folder, filename);
             if (File.Exists(path)) return Assembly.LoadFrom(path);
         }
         return null;
@@ -53,6 +55,17 @@ internal static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run()
     {
+        Test("plugin identity and loader dependencies match the selected build", () =>
+        {
+            Assembly plugin = typeof(LOMSave2Plugin).Assembly;
+            Check(plugin.GetName().Version == new Version(0, 0, 0, 0), "Serialized assembly identity changed.");
+            var references = plugin.GetReferencedAssemblies().Select(a => a.Name).ToArray();
+#if BEPINEX6
+            Check(references.Contains("BepInEx.Core") && references.Contains("BepInEx.Unity.Mono") && !references.Contains("BepInEx"), "BepInEx 6 DLL has incorrect loader references.");
+#else
+            Check(references.Contains("BepInEx") && !references.Contains("BepInEx.Core") && !references.Contains("BepInEx.Unity.Mono"), "BepInEx 5 DLL has incorrect loader references.");
+#endif
+        });
         Test("Doorstop loader architecture matches Unity player and Mono runtime", () =>
         {
             ushort expected = PeMachine(Path.Combine(_gameDir, "Mortal.exe"));
@@ -1413,7 +1426,7 @@ internal static class Program
     {
         string legacy = Path.Combine(_root, "tests/fixtures/format3/LOMSave2.dll");
         var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,
-            Quote(_gameDir) + " " + Quote(_root) + " " + Quote(_output) + " --legacy3 " + Quote(legacy))
+            Quote(_gameDir) + " " + Quote(_root) + " " + Quote(_output) + " " + Quote(_bepinexDir) + " --legacy3 " + Quote(legacy))
         { UseShellExecute = false, CreateNoWindow = true };
         using (var process = Process.Start(start))
         {
@@ -1614,7 +1627,7 @@ internal static class Program
         string legacy = Path.Combine(_root, "tests/fixtures/format2/LOMSave2.dll");
         Check(File.Exists(legacy), "Baseline DLL required for compatibility fixture.");
         var start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,
-            Quote(_gameDir) + " " + Quote(_root) + " " + Quote(_output) + " --legacy " + Quote(legacy))
+            Quote(_gameDir) + " " + Quote(_root) + " " + Quote(_output) + " " + Quote(_bepinexDir) + " --legacy " + Quote(legacy))
         {
             UseShellExecute = false,
             CreateNoWindow = true,
