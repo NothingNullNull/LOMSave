@@ -4,12 +4,12 @@
 
 ## 下载与安装
 
-当前版本为 **2.0.2**，适配游戏 `release_1.0.6000.2`。下载见 [GitHub Releases](https://github.com/NothingNullNull/LOMSave/releases)；旧 2.0.1 不适用于本次游戏更新。
+当前版本为 **2.0.3**，适配游戏 `release_1.0.6000.2`，修复子剧情回放卡住及异常后无法退出的问题。下载见 [GitHub Releases](https://github.com/NothingNullNull/LOMSave/releases)；旧 2.0.1 不适用于本次游戏更新。
 
 ### 一键整合包（推荐）
 
 1. 关闭游戏并备份完整存档目录。
-2. 下载 `LOMSave-v2.0.2-OneClick.zip`，已包含 **BepInEx 5.4.23.5 Windows x64** 和本 MOD。
+2. 下载 `LOMSave-v2.0.3-OneClick.zip`，已包含 **BepInEx 5.4.23.5 Windows x64** 和本 MOD。
 3. 将 ZIP 内的全部内容直接解压覆盖到游戏根目录（`Mortal.exe` 所在文件夹），不要额外套一层文件夹。
 4. 启动游戏，通过游戏自带的存档/读档界面使用，也可使用下方快捷键。
 
@@ -19,7 +19,7 @@
 
 ### 已安装 BepInEx 的用户
 
-确认加载器为 **BepInEx 5.4.23.5 Windows x64（Mono）** 后，可下载普通包 `LOMSave-v2.0.2.zip` 解压到游戏根目录，或将独立 `LOMSave2.dll` 放入上述插件目录。需要单独安装加载器时，前往 [BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 选择 `BepInEx_win_x64_5.4.23.5.zip`。
+确认加载器为 **BepInEx 5.4.23.5 Windows x64（Mono）** 后，可下载普通包 `LOMSave-v2.0.3.zip` 解压到游戏根目录，或将独立 `LOMSave2.dll` 放入上述插件目录。需要单独安装加载器时，前往 [BepInEx 官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5) 选择 `BepInEx_win_x64_5.4.23.5.zip`。
 
 每次发布均提供一键整合包、普通 MOD 包、独立 DLL 和 `SHA256SUMS.txt`。普通包只含 MOD 和说明；整合包另含 BepInEx、第三方许可及相应源码。两种包均不包含游戏程序集、游戏资源或玩家存档。
 
@@ -58,10 +58,13 @@
 | `Hotkeys.QuickSave` / `QuickLoad` / `Verify` | F5 / F9 / F8 |
 | `Replay.TimeScale` | 50，回放速度倍率，可自行调整 |
 | `Replay.ShowOverlay` | true，回放时用不透明黑幕遮住画面，保留进度提示 |
+| `Replay.NoProgressTimeoutSeconds` | 45，回放无进度保护的真实秒数；交互和战斗暂停不计入，设为不大于 0 可关闭 |
 | `Verification.AutoCheck` | true，回放完成后自动检查 |
 | `Verification.ReportDirectory` | 验证报告目录 |
 
 更新 MOD 会保留已有配置。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段会显示游戏界面，完成操作后恢复遮罩。
+
+回放异常或持续无进度时会停止回放，恢复正常速度和输入，并保留失败报告。此时禁止保存不完整状态；请重新读档，成功读取后恢复正常保存。
 
 ## 存档兼容与限制
 
@@ -96,5 +99,7 @@ $gameDir = '<游戏安装目录的完整路径>'
 ```
 
 测试缺少剧情资料时会从本地游戏提取两个用例，提取文件保留在被忽略的 `assets/story/`。发布包默认输出到 `dist/`，构建不部署到游戏。构建时自动生成两种 ZIP、独立 DLL 和校验文件；首次会下载并校验官方 BepInEx 与 Doorstop 源码，缓存保留在 `.work/bundle-cache/`，后续可离线复用。将全部产物同步至 `release/` 后，发布流程会校验并上传两种包，缺少整合包时不会发布。测试范围和限制见 [tests/README.md](tests/README.md)。
+
+**发布新版本：** 合并源码后仍需在有游戏依赖的本地环境运行 `tools/Build-Release.ps1 -GameDir $gameDir -OutputDir ./release`，提交新版本的两种 ZIP、`LOMSave2.dll` 和 `SHA256SUMS.txt`。同时更新 README 的下载版本，并将更新记录标题改为准确的 `## 版本号`（去掉“未发布”）。GitHub Action 只校验和上传这些产物，不在云端编译游戏 MOD；只改源码版本号或重新运行旧 Action 不会自动生成新包。
 
 源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。版本说明见 [CHANGELOG.md](CHANGELOG.md)。

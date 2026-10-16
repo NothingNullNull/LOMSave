@@ -44,6 +44,16 @@ jobs:
           tag="v$version"
           archive="LOMSave-v$version.zip"
           bundle="LOMSave-v$version-OneClick.zip"
+          gh api "repos/$GITHUB_REPOSITORY/contents/release?ref=$GITHUB_SHA" \
+            --jq '.[].name' > available-files.txt
+          missing=false
+          for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
+            if ! grep -Fxq -- "$file" available-files.txt; then
+              echo "::error file=release/$file::Missing release artifact: $file. Build this version locally with tools/Build-Release.ps1 -OutputDir ./release and commit all four release files."
+              missing=true
+            fi
+          done
+          if [[ "$missing" == true ]]; then exit 1; fi
           for file in "$archive" "$bundle" LOMSave2.dll SHA256SUMS.txt; do
             fetch_file "release/$file" "$file"
           done
@@ -56,7 +66,12 @@ jobs:
           python3 - "$version" <<'PY'
           import pathlib, sys
           changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
-          notes = changelog.split("\n## " + sys.argv[1] + "\n", 1)[1].split("\n## ", 1)[0].strip()
+          heading = "\n## " + sys.argv[1] + "\n"
+          if heading not in changelog:
+              sys.exit(f"::error file=CHANGELOG.md::Missing release heading: ## {sys.argv[1]}. Remove the unpublished suffix before releasing.")
+          notes = changelog.split(heading, 1)[1].split("\n## ", 1)[0].strip()
+          if not notes:
+              sys.exit(f"::error file=CHANGELOG.md::Release notes for {sys.argv[1]} are empty.")
           notes += f"\n\n推荐下载 `LOMSave-v{sys.argv[1]}-OneClick.zip`，内含 BepInEx 5.4.23.5 Windows x64；关闭游戏后直接将全部内容解压覆盖到游戏根目录（Mortal.exe 所在文件夹），无需运行安装程序。"
           notes += "\n\n已安装对应加载器的用户可选普通 MOD 包或独立 DLL。旧 BepInEx 6 用户先备份并移走旧 core 目录，避免混用核心文件；移走旧 LOMSave.dll，只保留一份 LOMSave2.dll。从旧 x86 加载器升级时须同时覆盖 winhttp.dll。"
           notes += "\n\n安装与兼容性说明：[README](https://github.com/NothingNullNull/LOMSave#readme)。\n"

@@ -1,3 +1,3 @@
-ee42bd7c722b6f4300230696693f64dfa6dec7f6b30989ad2a1bedbaec514070  LOMSave2.dll
-6d41f9d6f94b39ed54b9e268002699e1bbaacaa6e1f68ce8127ffccbaceac406  LOMSave-v2.0.2.zip
-34bad0cea6e1a7b3d4d0774360e4b7ffadd76eb26c42308ebbeb1dd95abd4c97  LOMSave-v2.0.2-OneClick.zip
+b3b14326d925cd0e32cc1ffff824ad62729c40bcd81aeaa12abbfa698475e18e  LOMSave2.dll
+14c46f75df88f70598d77e899b9052405c17d9f2efce60f1a52af5410e41d463  LOMSave-v2.0.3.zip
+e5ea26be46cc5cab70540714f30cc3fa525be0b969c2a75e20b43ef1d6be8ac7  LOMSave-v2.0.3-OneClick.zip

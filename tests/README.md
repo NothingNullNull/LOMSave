@@ -42,8 +42,8 @@ python .\tools\Extract-TestStories.py --game-dir $gameDir
 执行 `tools/Build-Release.ps1` 时自动检查两种包内 DLL、整合包根目录结构、官方 BepInEx 全部文件、第三方许可与源码及发布校验文件；失败会阻止发布。
 
 ```powershell
-python .\tools\package_bundle.py verify --release-dir .\dist --version 2.0.2
-python .\tests\test_release_package.py --release-dir .\dist --version 2.0.2
+python .\tools\package_bundle.py verify --release-dir .\dist --version 2.0.3
+python .\tests\test_release_package.py --release-dir .\dist --version 2.0.3
 ```
 
 将版本号替换为本次发布版本。发布包测试在项目 `.work/` 内模拟解压覆盖，确认已有配置、其他插件和存档标记保持原样；同时检查缺包、缺少校验项、错误组件、重复 MOD、个人文件和多余外层目录会被拒绝。此检查不代替实际游戏启动验证。
