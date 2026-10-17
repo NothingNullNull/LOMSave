@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-当前版本 **2.0.5**，适配游戏 `release_1.0.6000.3`。同一套源码提供 BepInEx 5 和 6 两种构建，功能、配置及存档格式相同。[前往下载](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.5)。
+当前版本 **2.0.6**，适配游戏 `release_1.0.6000.3`。同一套源码提供 BepInEx 5 和 6 两种构建，功能、配置及存档格式相同。[前往下载](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.6)。
 
 按已有加载器选择，**只安装其中一种**：
 
 | 加载器 | 一键整合包 | 普通 MOD 包 |
 | --- | --- | --- |
-| BepInEx 5.4.23.5 Windows x64 | `LOMSave-v2.0.5-BepInEx5-OneClick.zip` | `LOMSave-v2.0.5-BepInEx5.zip` |
-| BepInEx 6.0.0-be.692 Unity Mono Windows x64 | `LOMSave-v2.0.5-BepInEx6-OneClick.zip` | `LOMSave-v2.0.5-BepInEx6.zip` |
+| BepInEx 5.4.23.5 Windows x64 | `LOMSave-v2.0.6-BepInEx5-OneClick.zip` | `LOMSave-v2.0.6-BepInEx5.zip` |
+| BepInEx 6.0.0-be.692 Unity Mono Windows x64 | `LOMSave-v2.0.6-BepInEx6-OneClick.zip` | `LOMSave-v2.0.6-BepInEx6.zip` |
 
 没有安装过加载器，或继续使用本 MOD 2.0.0～2.0.3 的加载器，可选择 **BepInEx 5**。使用依赖 BepInEx 6 的骰子大师时，选择 **BepInEx 6**。已验证公开的“v3 修正版显示选项结果”样本；其他骰子大师版本及其他 MOD 仍需单独验证。
 
@@ -68,7 +68,7 @@
 
 | 配置 | 默认值 / 用途 |
 | --- | --- |
-| `Hotkeys.Enabled` | true，全部快捷键的总开关；false 全部关闭（2.0.6 新增，待发布） |
+| `Hotkeys.Enabled` | true，全部快捷键的总开关；false 全部关闭（2.0.6 新增） |
 | `Hotkeys.QuickSave` | F5，快速存档键；可修改，`None` 单独关闭 |
 | `Hotkeys.QuickLoad` | F9，快速读档键；可修改，`None` 单独关闭 |
 | `Hotkeys.Verify` | F8，手动验证键；可修改，`None` 单独关闭，自动验证仍由 `Verification.AutoCheck` 控制 |
@@ -136,4 +136,4 @@ $gameDir = '<游戏安装目录的完整路径>'
 
 **发布新版本：** 更新版本号、README 与 CHANGELOG，在有游戏依赖的本地环境运行 `tools/Build-Release.ps1 -GameDir $gameDir -OutputDir ./release`，提交生成的全部 **7 个文件**（四个 ZIP、两个 DLL、一个校验文件）。更新记录标题须为准确的 `## 版本号`。GitHub Action 校验两套包齐全、组件和哈希一致后才发布，不在云端编译游戏 MOD；只改源码版本号或重跑旧 Action 不会生成新包。
 
-源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。测试范围见 [tests/README.md](tests/README.md)，最新双版本验证见 [2.0.5 发布复核](docs/2026-10-17发布复核.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)。
+源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。测试范围见 [tests/README.md](tests/README.md)，双版本验证见 [2.0.6 动画池与快捷键复核](docs/2026-10-17动画池回放修复.md)及 [2.0.5 发布复核](docs/2026-10-17发布复核.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)。
