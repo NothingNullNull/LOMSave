@@ -54,14 +54,16 @@ namespace LOMSave2
                 // A load creates a new Lua interpreter. Restore variables from
                 // the boundary before even the first instruction is executed.
                 LomsRuntime.RestoreLuaBoundary(____luaEnvironment.Interpreter);
-                if (LomsRuntime.Cursor >= LomsRuntime.Events.Count)
-                {
-                    LomsRuntime.EndReplay("exhausted at script start");
-                }
-                else
-                {
-                    return; // still replaying into the next script
-                }
+                // Format-3 saves can predate optional waiting-point metadata.
+                // Preserve their original empty-stream behavior.
+                if (LomsRuntime.ReplayFormatVersion < 5 && LomsRuntime.Events.Count == 0
+                    && LomsRuntime.ReplayTargetCheckpoint == null)
+                    LomsRuntime.EndReplay("legacy empty stream without checkpoint");
+                // A child can execute native checkpoints before its first
+                // saved waiting point. Legacy streams still need to rebuild
+                // those events even when all recorded dialogue is exhausted.
+                // End only when the next story-facing event reaches the cursor.
+                return;
             }
             // SetStartScript/AutoSave may run halfway through this same file.
             // Only the actual script entry is a restartable replay boundary.
@@ -238,6 +240,7 @@ namespace LOMSave2
                 }
                 if (sc == null) return;
                 GameSave b = sc.BoundarySave;
+                UnityRandomState savedRandomState = gameSave.FreeRandomState;
 
                 // Replay must begin with boundary state, including travel and
                 // restore pointers; the script will reproduce later changes.
@@ -245,7 +248,7 @@ namespace LOMSave2
                 b.CurrentScene = sc.Scene;
                 gameSave = b;
 
-                LomsRuntime.BeginReplay(sc, b, slot);
+                LomsRuntime.BeginReplay(sc, b, slot, savedRandomState);
             }
             catch (System.Exception e)
             {
@@ -276,6 +279,86 @@ namespace LOMSave2
             // change flags, time and the starting script before replay starts.
             // Checks from later replayed story transitions still run normally.
             return !LomsRuntime.AwaitingReplayScript;
+        }
+
+        // ============ Native story randomness ============
+
+        [HarmonyPatch(typeof(CheckPointManager), "Position")]
+        [HarmonyPrefix]
+        public static bool CheckPointManager_Position_Prefix(string name, ref string __result, out bool __state)
+        {
+            __state = !LomsRuntime.TryReplayPosition(name, out string result);
+            if (__state) return true;
+            __result = result;
+            return false;
+        }
+
+        [HarmonyPatch(typeof(CheckPointManager), "Position")]
+        [HarmonyPostfix]
+        public static void CheckPointManager_Position_Postfix(string name, string __result, bool __state)
+        {
+            if (__state) LomsRuntime.RecordPosition(name, __result);
+        }
+
+        [HarmonyPatch(typeof(CheckPointManager), "Switch")]
+        [HarmonyPrefix]
+        public static void CheckPointManager_Switch_Prefix(string name, out string __state)
+        {
+            LomsRuntime.TryReplayCheckpoint("Switch", name, out __state);
+            // Keep the native call: it increments execution counts that affect
+            // subsequent checkpoints. Only its return value is replaced.
+        }
+
+        [HarmonyPatch(typeof(CheckPointManager), "Switch")]
+        [HarmonyPostfix]
+        public static void CheckPointManager_Switch_Postfix(string name, ref int __result, string __state)
+        {
+            if (__state != null) __result = int.Parse(__state, System.Globalization.CultureInfo.InvariantCulture);
+            else LomsRuntime.RecordCheckpoint("Switch", name, __result.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        [HarmonyPatch(typeof(CheckPointManager), "Condition")]
+        [HarmonyPrefix]
+        public static void CheckPointManager_Condition_Prefix(string name, out string __state)
+        {
+            LomsRuntime.TryReplayCheckpoint("Condition", name, out __state);
+        }
+
+        [HarmonyPatch(typeof(CheckPointManager), "Condition")]
+        [HarmonyPostfix]
+        public static void CheckPointManager_Condition_Postfix(string name, ref bool __result, string __state)
+        {
+            if (__state != null) __result = __state == "true";
+            else LomsRuntime.RecordCheckpoint("Condition", name, __result ? "true" : "false");
+        }
+
+        // ============ Cached resources and presentation ============
+
+        [HarmonyPatch(typeof(LuaEnvironment), "RunUnityCoroutine")]
+        [HarmonyPrefix]
+        public static bool LuaEnvironment_RunUnityCoroutine_Prefix(IEnumerator coroutine, ref Fungus.Task __result)
+        {
+            if (!LomsRuntime.FastPresentation || !LomsReplayFastPath.TryCompleteCachedResource(coroutine)) return true;
+            __result = null;
+            return false;
+        }
+
+        [HarmonyPatch(typeof(StoryTransitionBlack), "TransitionIn")]
+        [HarmonyPrefix]
+        public static bool StoryTransitionBlack_TransitionIn_Prefix(StoryTransitionBlack __instance, string dir, ref IEnumerator __result)
+        {
+            if (!LomsRuntime.FastPresentation || !LomsReplayFastPath.TryCompleteTransition(__instance, true, dir)) return true;
+            __result = LomsRuntime.EmptyEnumerator();
+            return false;
+        }
+
+        [HarmonyPatch(typeof(StoryTransitionBlack), "TransitionOut")]
+        [HarmonyPrefix]
+        public static bool StoryTransitionBlack_TransitionOut_Prefix(StoryTransitionBlack __instance, string dir, ref IEnumerator __result)
+        {
+            if (!LomsRuntime.FastPresentation || !LomsReplayFastPath.TryCompleteTransition(__instance, false, dir)) return true;
+            __result = LomsRuntime.EmptyEnumerator();
+            return false;
         }
 
         // ============ Dice ============
@@ -419,7 +502,7 @@ namespace LOMSave2
                 PanelEvent e = LomsRuntime.Consume<PanelEvent>();
                 if (e != null)
                 {
-                    if (e.K != key) LomsVerification.ReplayIssue("面板错位：" + key + " != " + e.K);
+                    if (e.K != key) throw LomsRuntime.ReplayDivergence("面板错位：" + key + " != " + e.K);
                     __result = LomsRuntime.EmptyEnumerator();
                     return false;
                 }
@@ -502,7 +585,7 @@ namespace LOMSave2
                 PanelEvent e = LomsRuntime.Consume<PanelEvent>();
                 if (e != null)
                 {
-                    if (e.K != eventKey) LomsVerification.ReplayIssue("角色介绍错位：" + eventKey + " != " + e.K);
+                    if (e.K != eventKey) throw LomsRuntime.ReplayDivergence("角色介绍错位：" + eventKey + " != " + e.K);
                     __result = mode == 0 ? LomsRuntime.InstantIntro(key) : LomsRuntime.EmptyEnumerator();
                     return false;
                 }

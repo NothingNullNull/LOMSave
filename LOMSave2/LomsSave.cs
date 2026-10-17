@@ -21,6 +21,12 @@ namespace LOMSave2
     }
 
     [Serializable]
+    public sealed class WaitEvent : LomsEvent
+    {
+        public string Duration;
+    }
+
+    [Serializable]
     public class ChooseEvent : LomsEvent
     {
         public int Sel;
@@ -37,6 +43,14 @@ namespace LOMSave2
     public class RandEvent : LomsEvent
     {
         public double V;
+    }
+
+    [Serializable]
+    public sealed class NativeCheckpointEvent : LomsEvent
+    {
+        public string Kind;
+        public string Key;
+        public string Result;
     }
 
     [Serializable]
@@ -69,7 +83,7 @@ namespace LOMSave2
     [Serializable]
     public class LomsSaveData
     {
-        public const int CurrentFormatVersion = 4;
+        public const int CurrentFormatVersion = 5;
         public int FormatVersion = CurrentFormatVersion;
         public string BoundaryScript;
         public GameSave BoundarySave;
@@ -122,7 +136,8 @@ namespace LOMSave2
                 {
                     data = (LomsSaveData)fmt.Deserialize(fs);
                 }
-                if (data == null || (data.FormatVersion != 3 && data.FormatVersion != LomsSaveData.CurrentFormatVersion))
+                if (data == null || (data.FormatVersion != 3 && data.FormatVersion != 4
+                    && data.FormatVersion != LomsSaveData.CurrentFormatVersion))
                 {
                     warning = "附加存档版本不兼容，已按原生存档读取；重新存档后启用精确回放";
                     return null;
@@ -136,7 +151,9 @@ namespace LOMSave2
                 if ((data.Scene != "Story" && data.Scene != "Break") || data.Scene != nativeSave.CurrentScene
                     || data.BoundarySave == null || string.IsNullOrEmpty(data.BoundaryScript)
                     || !LomsLuaState.IsValid(data.LuaGlobals) || data.Events == null
-                    || data.Events.Exists(e => e == null || (e is FateBonusEvent fate && !LomsFateBonus.IsValid(fate))))
+                    || data.Events.Exists(e => e == null || (e is WaitEvent wait && wait.Duration == null)
+                        || (e is FateBonusEvent fate && !LomsFateBonus.IsValid(fate))
+                        || (e is NativeCheckpointEvent checkpoint && !IsValidCheckpoint(checkpoint))))
                 {
                     warning = "附加存档资料不完整，已按原生存档读取";
                     return null;
@@ -163,6 +180,15 @@ namespace LOMSave2
                 string expected = Convert.ToBase64String(sha.ComputeHash(stream));
                 return string.Equals(fingerprint, expected, StringComparison.Ordinal);
             }
+        }
+
+        public static bool IsValidCheckpoint(NativeCheckpointEvent e)
+        {
+            if (e == null || string.IsNullOrEmpty(e.Key) || string.IsNullOrEmpty(e.Result)) return false;
+            if (e.Kind == "Position") return true;
+            if (e.Kind == "Condition") return e.Result == "true" || e.Result == "false";
+            return e.Kind == "Switch" && int.TryParse(e.Result, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int result) && result >= 0;
         }
 
         public static bool CompleteSave(string nativePath, GameSave attempted, LomsSaveData storyData)

@@ -40,6 +40,9 @@ namespace LOMSave2
         public static int ReplayFormatVersion;
         public static bool LoadInProgress;
         private static bool _restoreLuaPending;
+        private static UnityRandomState? _savedRandomState;
+        public static string ReplayTargetCheckpoint { get; private set; }
+        private static string _replayTargetStory;
         public static bool AwaitingReplayScript => Replaying && _restoreLuaPending;
         public static bool LastSaveSucceeded;
         public static string LastLoadWarning;
@@ -145,6 +148,8 @@ namespace LOMSave2
         // ---- config ----
         public static float ReplayTimeScale = 50f;
         public static bool ShowOverlay = true;
+        public static bool FastPresentation = true;
+        public static bool BlockingReplayOverlay => Replaying && InStoryScene && PausePanel == null;
 
         // ---- UI hook (set by plugin; used by patches that run outside MonoBehaviour) ----
         public static Action<string> Notify;
@@ -186,11 +191,17 @@ namespace LOMSave2
         public static void RestoreLuaBoundary(Script script)
         {
             if (!_restoreLuaPending) return;
+            // Native Load stores this state in a field but never restores the
+            // engine RNG. Restore at script entry, after scene initialization
+            // has finished consuming its own random values.
+            UnityEngine.Random.state = JsonUtility.FromJson<UnityEngine.Random.State>(
+                JsonUtility.ToJson(BoundarySave.FreeRandomState));
             LomsLuaState.Restore(script, BoundaryLuaGlobals);
             _restoreLuaPending = false;
         }
 
-        public static void BeginReplay(LomsSaveData sc, GameSave boundary, string slot = null)
+        public static void BeginReplay(LomsSaveData sc, GameSave boundary, string slot = null,
+            UnityRandomState? savedRandomState = null)
         {
             EndReplay("superseded by new load", silent: true);
             LomsVerification.Begin(sc.ValidationSnapshot, slot);
@@ -204,8 +215,13 @@ namespace LOMSave2
             BoundarySave = boundary;
             BoundaryLuaGlobals = sc.LuaGlobals;
             _restoreLuaPending = true;
+            _savedRandomState = savedRandomState;
+            ReplayTargetCheckpoint = sc.ValidationSnapshot?.Checkpoint;
+            _replayTargetStory = null;
+            sc.ValidationSnapshot?.Values?.TryGetValue("Runtime.CurrentStoryScript", out _replayTargetStory);
             _boundaryOwner = null;
             LomsLegacyBootstrap.BeginReplay(sc.BoundaryScript);
+            LomsReplayFastPath.ResetCounters();
             RollPending = false;
             FateCount = 0;
             PausePanel = null;
@@ -233,10 +249,57 @@ namespace LOMSave2
                 Log?.LogInfo($"[Loms] Replay progress {Cursor}/{Events.Count}: {typeof(T).Name}, script={PlayerStatManagerData.Instance.CurrentStoryScript}");
                 return t;
             }
-            Log.LogWarning($"[Loms] Cursor type mismatch @{Cursor}: expected {typeof(T).Name}, got {e.GetType().Name}");
-            LomsVerification.ReplayIssue($"事件类型错位 @{Cursor}: {typeof(T).Name} != {e.GetType().Name}");
-            EndReplay("type mismatch");
-            return null;
+            throw ReplayDivergence($"事件类型错位 @{Cursor}: {typeof(T).Name} != {e?.GetType().Name ?? "<null>"}");
+        }
+
+        // Throw synchronously so the current Lua coroutine cannot continue
+        // along an unverified branch before the next Update unwinds replay.
+        public static ScriptRuntimeException ReplayDivergence(string message)
+        {
+            LomsVerification.ReplayIssue(message);
+            LomsReplayGuard.OnLogMessage(message, "Fungus.LuaEnvironment replay divergence", LogType.Error);
+            return new ScriptRuntimeException("LOMSave2: " + message);
+        }
+
+        public static bool TryReplayPosition(string key, out string result)
+            => TryReplayCheckpoint("Position", key, out result);
+
+        public static bool TryReplayCheckpoint(string kind, string key, out string result)
+        {
+            result = null;
+            if (!Replaying) return false;
+            // Old event streams lack native RNG results. Rebuild them while
+            // replaying; strict subsequent checks still reject a wrong branch.
+            if (ReplayFormatVersion < 5 && (Cursor >= Events.Count || !(Events[Cursor] is NativeCheckpointEvent recorded)
+                || recorded.Kind != kind))
+                return false;
+            NativeCheckpointEvent e = Consume<NativeCheckpointEvent>();
+            if (e == null) return false;
+            if (e.Kind != kind || e.Key != key || !LomsSave.IsValidCheckpoint(e))
+                throw ReplayDivergence("剧情判定错位：" + kind + "(" + key + ") != " + e.Kind + "(" + e.Key + ")");
+            result = e.Result;
+            return true;
+        }
+
+        public static void RecordPosition(string key, string result)
+            => RecordCheckpoint("Position", key, result);
+
+        public static void RecordCheckpoint(string kind, string key, string result)
+        {
+            var e = new NativeCheckpointEvent { Kind = kind, Key = key, Result = result };
+            RecordLegacyOrLive(e);
+        }
+
+        public static void RecordLegacyOrLive(LomsEvent e)
+        {
+            if (Replaying && ReplayFormatVersion < 5) { Events.Insert(Cursor, e); Cursor++; }
+            else Record(e);
+        }
+
+        public static bool IsReplayTargetWait(string duration, string story)
+        {
+            return ReplayTargetCheckpoint == "Wait:" + duration
+                && (_replayTargetStory == null || _replayTargetStory == LomsStateSnapshot.Quote(story));
         }
 
         public static void Record(LomsEvent e)
@@ -251,7 +314,15 @@ namespace LOMSave2
             PausePanel = null;
             RestoreInput();
             if (!Replaying) return;
+            // Native RNG calls are bypassed when their recorded branch is
+            // replayed. Resume future gameplay with the state captured by the
+            // actual save, rather than with a partially advanced replay RNG.
+            if (!silent && Cursor == Events.Count && !LomsReplayGuard.RecoveryRequired
+                && _savedRandomState.HasValue)
+                UnityEngine.Random.state = JsonUtility.FromJson<UnityEngine.Random.State>(
+                    JsonUtility.ToJson(_savedRandomState.Value));
             Replaying = false;
+            _savedRandomState = null;
             _restoreLuaPending = false;
             Time.timeScale = 1f;
             RestoreVisual();
@@ -322,7 +393,10 @@ namespace LOMSave2
             LomsReplayGuard.Reset();
             _restoreLuaPending = false;
             RollPending = false;
+            _savedRandomState = null;
             FateCount = 0;
+            ReplayTargetCheckpoint = null;
+            _replayTargetStory = null;
             PausePanel = null;
             LiveBlockPanel = null;
             CurMusic = null;
