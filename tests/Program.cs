@@ -382,7 +382,12 @@ internal static class Program
             finally { LomsRuntime.FastPresentation = fast; }
         });
         Test("completed Wait events survive format 5 save pairing", CompletedWaitSerialization);
+        Test("presentation pressure handles native pool capacity, sparse slots and a completely full array", PresentationPoolPressure);
         Test("recorded waits replay without delay and do not run later statements after a mismatch", RecordedWaitFlow);
+        Test("presentation pressure yields across frames without consuming extra events or save checkpoints", PresentationPressureFlow);
+        Test("recorded interactions keep their choices and finish in one frame without presentation pressure", UnpressuredPresentationFlow);
+        Test("ending replay releases a suspended presentation drain", StoppedPresentationFlow);
+        Test("live interactions keep their native yields even when presentation pressure is reported", LivePresentationFlow);
         Test("a target wait suspends before later gameplay changes", TargetWaitFlow);
         Test("multiple replayed waits reach the saved dialogue without ending at an earlier wait", WaitsBeforeDialogueFlow);
         Test("nested waits belong to their enclosing dialogue instead of creating replay events", NestedWaitOwnership);
@@ -1081,7 +1086,7 @@ internal static class Program
     }
 
     private static Script WaitFlowEnvironment(Func<string, bool> onWait, Func<string, bool> onSay,
-        Action<string> waitDone = null)
+        Action<string> waitDone = null, Func<bool> presentationBusy = null)
     {
         var script = new Script();
         var bindings = new Table(script);
@@ -1089,6 +1094,7 @@ internal static class Program
         bindings["on_choose"] = (Func<int, int>)(_ => 0);
         bindings["on_random"] = (Func<double, double>)(value => value);
         bindings["replaying"] = (Func<bool>)(() => LomsRuntime.Replaying);
+        bindings["presentation_busy"] = presentationBusy ?? (Func<bool>)(() => false);
         bindings["on_wait"] = onWait;
         bindings["wait_done"] = waitDone ?? (Action<string>)(_ => { });
         bindings["wait_begin"] = (Func<string, string, int>)LomsLua.wait_begin;
@@ -1097,14 +1103,188 @@ internal static class Program
         bindings["choose_done"] = (Action<int>)(_ => { });
         script.Globals["loms"] = bindings;
         script.DoString(@"
-          raw_wait_calls=0; raw_say_calls=0
+          raw_wait_calls=0; raw_say_calls=0; raw_choose_calls=0; raw_timer_calls=0
           say=function(text) raw_say_calls=raw_say_calls+1; coroutine.yield('say:'..text) end
-          choose=function(options) return 1 end
-          choosetimer=choose
+          choose=function(options) raw_choose_calls=raw_choose_calls+1; return 1 end
+          choosetimer=function(options, duration, default) raw_timer_calls=raw_timer_calls+1; return default end
           wait=function(t) raw_wait_calls=raw_wait_calls+1; coroutine.yield('wait:'..t) end
         ");
         script.DoString(LomsPreamble.Code);
         return script;
+    }
+
+    private static void PresentationPoolPressure()
+    {
+        Check(!LomsReplayPresentation.HasPressure(null) && !LomsReplayPresentation.HasPressure(new LTDescr[0]),
+            "An uninitialized native tween pool blocked replay.");
+        var normal = new LTDescr[400];
+        for (int i = 0; i < 265; i++) normal[i] = ActiveTween();
+        Check(!LomsReplayPresentation.HasPressure(normal), "The default pool was throttled before its reserved headroom.");
+        normal[399] = ActiveTween();
+        Check(LomsReplayPresentation.HasPressure(normal), "A busy pool with sparse free slots was not throttled.");
+        for (int i = 0; i < normal.Length; i++) normal[i] = ActiveTween();
+        Check(LomsReplayPresentation.HasPressure(normal), "A completely full pool was missed or indexed past its final slot.");
+        var custom = new LTDescr[12];
+        for (int i = 0; i < 7; i++) custom[i] = ActiveTween();
+        Check(!LomsReplayPresentation.HasPressure(custom), "A custom-sized pool blocked while sufficient slots remained.");
+        custom[11] = ActiveTween();
+        Check(LomsReplayPresentation.HasPressure(custom), "Pressure ignored the actual customized pool capacity.");
+        custom[11].toggle = false;
+        Check(!LomsReplayPresentation.HasPressure(custom), "An inactive allocated tween counted as a live presentation.");
+
+        // Native LeanTween initialization constructs an AnimationCurve and
+        // requires the Unity player. Its actual managed pressure predicate is
+        // covered above; the public live binding must return before touching
+        // any native pool or engine initialization.
+        bool replaying = LomsRuntime.Replaying;
+        try
+        {
+            LomsRuntime.Replaying = false;
+            Check(!LomsLua.presentation_busy(), "Presentation pressure delayed live gameplay after replay ended.");
+        }
+        finally { LomsRuntime.Replaying = replaying; }
+    }
+
+    private static LTDescr ActiveTween()
+    {
+        var tween = (LTDescr)FormatterServices.GetUninitializedObject(typeof(LTDescr));
+        tween.toggle = true;
+        return tween;
+    }
+
+    private static void PresentationPressureFlow()
+    {
+        var events = new LomsEvent[] {
+            new SayEvent { Hash = LomsRuntime.HashText("recorded start") },
+            new ChooseEvent { Sel = 2 },
+            new ChooseEvent { Sel = 3 },
+            new WaitEvent { Duration = "0.25" },
+        };
+        WithReplayTarget("Wait:0.25", "child", () => WithReplay(5, () =>
+        {
+            int releasedCursor = 0;
+            int completedWaits = 0;
+            var script = WaitFlowEnvironment(LomsLua.on_wait, LomsLua.on_say,
+                _ => completedWaits++, () => LomsRuntime.Replaying && LomsRuntime.Cursor > releasedCursor);
+            script.Globals.Get("loms").Table["on_choose"] = (Func<int, int>)LomsLua.on_choose;
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString(@"
+                  say('recorded start'); passed_say=true
+                  selected=choose({'a','b','c'}); passed_choose=true
+                  timed=choosetimer({'a','b','c'}, 5, 1); passed_timer=true
+                  wait(0.25); finished=true
+                "));
+                string[] completionMarkers = { "passed_say", "passed_choose", "passed_timer", "finished" };
+                for (int consumed = 1; consumed <= events.Length; consumed++)
+                {
+                    // Hold each presentation for three simulated Unity frames.
+                    // Repeated resumes must neither repeat its replay event nor
+                    // advance the next interaction while the pool is still busy.
+                    for (int frame = 0; frame < 3; frame++)
+                    {
+                        coroutine.Coroutine.Resume();
+                        Check(coroutine.Coroutine.State == CoroutineState.Suspended
+                            && LomsRuntime.Cursor == consumed,
+                            "Presentation pressure consumed another event while suspended at event " + consumed + ".");
+                        Check(LomsRuntime.CurrentCheckpoint == null && completedWaits == 0,
+                            "A presentation drain became a savable wait or recorded a completed gameplay wait.");
+                        Check(script.Globals.Get(completionMarkers[consumed - 1]).Type == DataType.Nil,
+                            "Gameplay after the pressured interaction ran before its presentation drained.");
+                        Check(LomsRuntime.Events.SequenceEqual(events), "Presentation pacing rewrote the replay event sequence.");
+                    }
+                    releasedCursor = consumed;
+                }
+                coroutine.Coroutine.Resume();
+                Check(coroutine.Coroutine.State == CoroutineState.Dead && script.Globals.Get("finished").Boolean
+                    && script.Globals.Get("selected").Number == 2 && script.Globals.Get("timed").Number == 3,
+                    "Pacing lost a recorded choice result or failed to release the completed sequence.");
+                Check(LomsRuntime.Cursor == events.Length && LomsRuntime.Events.SequenceEqual(events)
+                    && completedWaits == 0 && LomsRuntime.CurrentCheckpoint == null,
+                    "Pacing changed event count, order or the saved waiting point after completing.");
+                Check(script.Globals.Get("raw_say_calls").Number == 0 && script.Globals.Get("raw_choose_calls").Number == 0
+                    && script.Globals.Get("raw_timer_calls").Number == 0 && script.Globals.Get("raw_wait_calls").Number == 0,
+                    "An already replayed interaction was sent to a native presentation wrapper.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, events));
+    }
+
+    private static void UnpressuredPresentationFlow()
+    {
+        WithReplay(5, () =>
+        {
+            var script = WaitFlowEnvironment(LomsLua.on_wait, LomsLua.on_say);
+            script.Globals.Get("loms").Table["on_choose"] = (Func<int, int>)LomsLua.on_choose;
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString(@"
+                  say('start'); selected=choose({'a','b'});
+                  timed=choosetimer({'a','b'}, 3, 1); wait(0.1); finished=true
+                "));
+                coroutine.Coroutine.Resume();
+                Check(coroutine.Coroutine.State == CoroutineState.Dead && script.Globals.Get("finished").Boolean
+                    && script.Globals.Get("selected").Number == 2 && script.Globals.Get("timed").Number == 2
+                    && LomsRuntime.Cursor == 4 && LomsRuntime.CurrentCheckpoint == null,
+                    "Unpressured replay gained an artificial frame or changed its selected branches.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, new SayEvent { Hash = LomsRuntime.HashText("start") },
+            new ChooseEvent { Sel = 2 }, new ChooseEvent { Sel = 2 }, new WaitEvent { Duration = "0.1" });
+    }
+
+    private static void StoppedPresentationFlow()
+    {
+        WithReplay(5, () =>
+        {
+            var script = WaitFlowEnvironment(LomsLua.on_wait, LomsLua.on_say,
+                presentationBusy: () => LomsRuntime.Replaying || LomsLua.presentation_busy());
+            LomsRuntime.SetLuaScript(script);
+            try
+            {
+                var coroutine = script.CreateCoroutine(script.LoadString("say('start'); released=true"));
+                coroutine.Coroutine.Resume();
+                coroutine.Coroutine.Resume();
+                Check(coroutine.Coroutine.State == CoroutineState.Suspended && LomsRuntime.Cursor == 1
+                    && script.Globals.Get("released").Type == DataType.Nil,
+                    "The pressure simulation did not hold the recorded dialogue.");
+                LomsRuntime.Replaying = false;
+                coroutine.Coroutine.Resume();
+                Check(coroutine.Coroutine.State == CoroutineState.Dead && script.Globals.Get("released").Boolean
+                    && LomsRuntime.Cursor == 1 && LomsRuntime.Events.Count == 1 && LomsRuntime.CurrentCheckpoint == null,
+                    "A stopped replay stayed trapped in presentation pacing or changed its recorded event.");
+            }
+            finally { LomsRuntime.SetLuaScript(null); }
+        }, new SayEvent { Hash = LomsRuntime.HashText("start") });
+    }
+
+    private static void LivePresentationFlow()
+    {
+        bool replaying = LomsRuntime.Replaying;
+        int pressureChecks = 0;
+        try
+        {
+            LomsRuntime.Replaying = false;
+            var script = WaitFlowEnvironment(_ => false, _ => false,
+                presentationBusy: () => { pressureChecks++; return true; });
+            LomsRuntime.SetLuaScript(script);
+            var coroutine = script.CreateCoroutine(script.LoadString(@"
+              say('live'); selected=choose({'a','b'});
+              timed=choosetimer({'a','b'}, 3, 2); wait(0.1); finished=true
+            "));
+            Check(coroutine.Coroutine.Resume().String == "say:live" && LomsRuntime.CurrentCheckpoint != null,
+                "Live dialogue lost its native yield or save checkpoint.");
+            Check(coroutine.Coroutine.Resume().String == "wait:0.1" && LomsRuntime.CurrentCheckpoint == "Wait:0.1"
+                && script.Globals.Get("selected").Number == 1 && script.Globals.Get("timed").Number == 2,
+                "Live choices or native waiting behavior changed under presentation pressure.");
+            coroutine.Coroutine.Resume();
+            Check(coroutine.Coroutine.State == CoroutineState.Dead && script.Globals.Get("finished").Boolean
+                && pressureChecks == 0 && LomsRuntime.CurrentCheckpoint == null,
+                "Live gameplay queried replay pressure, acquired an extra yield or leaked a checkpoint.");
+        }
+        finally { LomsRuntime.SetLuaScript(null); LomsRuntime.Replaying = replaying; }
     }
 
     private static void RecordedWaitFlow()
@@ -1388,6 +1568,7 @@ internal static class Program
         bindings["on_choose"] = (Func<int, int>)(_ => 0);
         bindings["on_random"] = (Func<double, double>)(value => value);
         bindings["replaying"] = (Func<bool>)(() => false);
+        bindings["presentation_busy"] = (Func<bool>)(() => false);
         bindings["on_wait"] = (Func<string, bool>)(_ => false);
         bindings["wait_done"] = (Action<string>)(_ => { });
         bindings["wait_begin"] = (Func<string, string, int>)LomsLua.wait_begin;

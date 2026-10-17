@@ -18,7 +18,7 @@ namespace LOMSave2
     public class LOMSave2Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.nn.lomsave2";
-        public const string PluginVersion = "2.0.5";
+        public const string PluginVersion = "2.0.6";
 
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;

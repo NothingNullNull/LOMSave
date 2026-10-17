@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <ProjectReference Include="..\LOMSave2\LOMSave2.csproj" AdditionalProperties="Deploy=false" />
     <Reference Include="Fungus"><HintPath>$(GameDir)\Mortal_Data\Managed\Fungus.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameDir)\Mortal_Data\Managed\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Mortal.Core"><HintPath>$(GameDir)\Mortal_Data\Managed\Mortal.Core.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Mortal.Story"><HintPath>$(GameDir)\Mortal_Data\Managed\Mortal.Story.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameDir)\Mortal_Data\Managed\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
