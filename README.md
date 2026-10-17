@@ -4,14 +4,14 @@
 
 ## 下载与安装
 
-当前版本 **2.0.4**，适配游戏 `release_1.0.6000.2`。同一套源码提供 BepInEx 5 和 6 两种构建，功能、配置及存档格式相同。[前往下载](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.4)。
+当前版本 **2.0.5**，适配游戏 `release_1.0.6000.3`。同一套源码提供 BepInEx 5 和 6 两种构建，功能、配置及存档格式相同。[前往下载](https://github.com/NothingNullNull/LOMSave/releases/tag/v2.0.5)。
 
 按已有加载器选择，**只安装其中一种**：
 
 | 加载器 | 一键整合包 | 普通 MOD 包 |
 | --- | --- | --- |
-| BepInEx 5.4.23.5 Windows x64 | `LOMSave-v2.0.4-BepInEx5-OneClick.zip` | `LOMSave-v2.0.4-BepInEx5.zip` |
-| BepInEx 6.0.0-be.692 Unity Mono Windows x64 | `LOMSave-v2.0.4-BepInEx6-OneClick.zip` | `LOMSave-v2.0.4-BepInEx6.zip` |
+| BepInEx 5.4.23.5 Windows x64 | `LOMSave-v2.0.5-BepInEx5-OneClick.zip` | `LOMSave-v2.0.5-BepInEx5.zip` |
+| BepInEx 6.0.0-be.692 Unity Mono Windows x64 | `LOMSave-v2.0.5-BepInEx6-OneClick.zip` | `LOMSave-v2.0.5-BepInEx6.zip` |
 
 没有安装过加载器，或继续使用本 MOD 2.0.0～2.0.3 的加载器，可选择 **BepInEx 5**。使用依赖 BepInEx 6 的骰子大师时，选择 **BepInEx 6**。已验证公开的“v3 修正版显示选项结果”样本；其他骰子大师版本及其他 MOD 仍需单独验证。
 
@@ -71,23 +71,26 @@
 | `Hotkeys.QuickSave` / `QuickLoad` / `Verify` | F5 / F9 / F8 |
 | `Replay.TimeScale` | 50，回放速度倍率，可自行调整 |
 | `Replay.ShowOverlay` | true，回放时用不透明黑幕遮住画面，保留进度提示 |
+| `Replay.FastPresentation` | true，回放时立即复用已缓存的人物和背景、完成剧情黑幕；关闭后保留原生资源及黑幕等待 |
 | `Replay.NoProgressTimeoutSeconds` | 45，回放无进度保护的真实秒数；交互和战斗暂停不计入，设为不大于 0 可关闭 |
 | `Verification.AutoCheck` | true，回放完成后自动检查 |
 | `Verification.ReportDirectory` | 验证报告目录 |
 
-更新 MOD 会保留已有配置。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段会显示游戏界面，完成操作后恢复遮罩。
+更新 MOD 会保留已有配置。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段及战役等非剧情场景会显示游戏界面，返回剧情回放后恢复遮罩。`FastPresentation` 不跳过战斗结算或未加载的资源；已记录的剧情等待仍会在回放中跳过。
 
 回放异常或持续无进度时会停止回放，恢复正常速度和输入，并保留失败报告。此时禁止保存不完整状态；请重新读档，成功读取后恢复正常保存。
 
 ## 存档兼容与限制
 
 - 原生 `.dat` 仍由游戏保存；剧情附加档为同名 `.dat.loms`，需要一起备份、移动。
-- 当前附加档格式为 4，接受格式 3。旧格式 3 若缺少命运面板记录，需要按原选择人工确认，完成回放后重新保存，才会补入记录。
-- 在 BepInEx 5 / 6 构建之间切换不改变存档格式、插件 GUID 和程序集身份，已有 2.0.x 的 `.dat` / `.dat.loms` 无需转换。第三方 MOD 的数值及选项修改仍需用存档副本验证。
+- 当前附加档格式为 5，接受格式 3/4，新增原生随机分支判定和已完成等待记录。旧档缺少的判定无法凭空还原；回放时补录，遇到对话、选项或判定错位立即停止。核对旧档恢复正确后，再重新保存。
+- 旧格式 3 若缺少命运面板记录，需要按原选择人工确认，完成回放后重新保存，才会补入记录。
+- 同一版本的 BepInEx 5 / 6 构建共用存档格式、插件 GUID 和程序集身份，切换加载器无需转换存档。第三方 MOD 的数值及选项修改仍需用存档副本验证。
+- **升级前备份 `.dat` / `.dat.loms` 文件对。** 2.0.4 及更早版本不能精确回放新的格式 5；需要回退 MOD 时，同时恢复升级前备份，否则只能尝试原生读取，恢复点可能更早。
 - 格式 2、损坏或配对不一致的附加档回退到原生读取；恢复点可能早于保存时的对话位置。
 - **旧仓库 1.x 的 `.ss` / `.ss.json` 不会自动转换为 `.loms`。** 保留完整旧档备份，先核对原生读档后的进度，再用 2.0 重新保存；不能保证旧 MOD 的精确对话停点。
 - 开发过程中的 2.1.x～2.3.x 已整合为此次正式发布的 **2.0.0**；插件 GUID、程序集身份与附加档格式保持兼容。
-- `FreeRandomState`（含嵌入还原存档）不参与一致性判定及警告计数，完整报告标注“已忽略”；此规则不改变实际随机状态，也不保证后续随机结果相同。
+- `FreeRandomState`（含嵌入还原存档）仍不参与一致性判定及警告计数，完整报告标注“已忽略”。2.0.5 在剧情入口恢复边界随机状态，完整回放后恢复保存时随机状态；报告的 `PASS` 本身仍不能证明随机状态一致，后续第三方 MOD 或其他调用也可能影响随机结果。
 - 当前不完整拦截跨游戏版本或脚本变化。游戏更新后先按 [兼容性检查清单](游戏更新兼容性检查清单.md) 用存档副本验证。
 - `release_1.0.6000.2` 新增大量任务、角色和事件标记，并调整部分剧情；旧档与新版本快照之间可能出现大量差异。样本能读入不代表所有旧剧情停点都兼容，重新保存也不能反向证明旧档恢复准确。
 - UI 动画、语音播放位置，以及 Lua 局部变量、表、函数不在状态快照比较范围内。其他修改相同接口的 MOD 需要单独验证兼容性。
@@ -118,4 +121,4 @@ $gameDir = '<游戏安装目录的完整路径>'
 
 **发布新版本：** 更新版本号、README 与 CHANGELOG，在有游戏依赖的本地环境运行 `tools/Build-Release.ps1 -GameDir $gameDir -OutputDir ./release`，提交生成的全部 **7 个文件**（四个 ZIP、两个 DLL、一个校验文件）。更新记录标题须为准确的 `## 版本号`。GitHub Action 校验两套包齐全、组件和哈希一致后才发布，不在云端编译游戏 MOD；只改源码版本号或重跑旧 Action 不会生成新包。
 
-源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。测试范围见 [tests/README.md](tests/README.md)，双版本验证见 [发布验证记录](docs/2026-10-16双加载器发布验证.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)。
+源码位于 `LOMSave2/`，测试位于 `tests/`，构建工具位于 `tools/`。测试范围见 [tests/README.md](tests/README.md)，最新双版本验证见 [2.0.5 发布复核](docs/2026-10-17发布复核.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)。

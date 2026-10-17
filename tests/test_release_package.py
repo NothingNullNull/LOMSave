@@ -15,7 +15,7 @@ import package_bundle as bundle
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--release-dir", type=Path, default=ROOT / "dist")
-parser.add_argument("--version", default="2.0.4")
+parser.add_argument("--version", default="2.0.5")
 OPTIONS, REMAINING = parser.parse_known_args()
 
 
