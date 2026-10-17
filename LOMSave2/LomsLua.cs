@@ -5,6 +5,8 @@ namespace LOMSave2
     /// </summary>
     public static class LomsLua
     {
+        public static bool presentation_busy() => LomsReplayPresentation.Busy();
+
         public static bool on_say(string text)
         {
             if (!LomsRuntime.Replaying) return false;
@@ -108,6 +110,10 @@ if say and choose and choosetimer and wait and math and math.random then
   local loms_raw_wait = wait
   local loms_raw_random = math.random
 
+  local function loms_drain_presentation()
+    while loms.presentation_busy() do coroutine.yield() end
+  end
+
   local function loms_options_key(options)
     local key = tostring(#options)
     for i=1,#options do
@@ -118,7 +124,7 @@ if say and choose and choosetimer and wait and math and math.random then
   end
 
   say = function(text, voice)
-    if loms.on_say(text) then return end
+    if loms.on_say(text) then loms_drain_presentation(); return end
     local token = loms.wait_begin('Say', text)
     loms_raw_say(text, voice)
     loms.wait_end(token)
@@ -127,7 +133,7 @@ if say and choose and choosetimer and wait and math and math.random then
 
   choose = function(options)
     local r = loms.on_choose(#options)
-    if r > 0 then return r end
+    if r > 0 then loms_drain_presentation(); return r end
     local token = loms.wait_begin('Choose', loms_options_key(options))
     local v = loms_raw_choose(options)
     loms.wait_end(token)
@@ -137,7 +143,7 @@ if say and choose and choosetimer and wait and math and math.random then
 
   choosetimer = function(options, duration, default)
     local r = loms.on_choose(#options)
-    if r > 0 then return r end
+    if r > 0 then loms_drain_presentation(); return r end
     local token = loms.wait_begin('ChooseTimer', loms_options_key(options) .. ':' .. tostring(duration) .. ':' .. tostring(default))
     local v = loms_raw_choosetimer(options, duration, default)
     loms.wait_end(token)
@@ -147,7 +153,7 @@ if say and choose and choosetimer and wait and math and math.random then
 
   wait = function(t)
     local duration = tostring(t)
-    if loms.on_wait(duration) then return end
+    if loms.on_wait(duration) then loms_drain_presentation(); return end
     local token = loms.wait_begin('Wait', duration)
     loms_raw_wait(t)
     loms.wait_end(token)
