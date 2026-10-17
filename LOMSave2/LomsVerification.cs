@@ -71,7 +71,7 @@ namespace LOMSave2
             return true;
         }
 
-        public static string Verify(Func<LomsStateSnapshot> capture, string trigger = "手动：F8")
+        public static string Verify(Func<LomsStateSnapshot> capture, string trigger = "手动验证")
         {
             AutoPending = false;
             LastNeedsWarning = false;

@@ -165,7 +165,7 @@ namespace LOMSave2
                 _handlingFailure = true;
             }
             RecoveryRequired = true;
-            RecoveryMessage = "回放失败，已停止并解锁。当前进度不完整，暂不能保存。请按 F9 重新读档，或从菜单读取其他存档。";
+            RecoveryMessage = "回放失败，已停止并解锁。当前进度不完整，暂不能保存。请重新读取当前存档，或从菜单读取其他存档。";
             string diagnostic = DescribeFailure(reason, failure);
             try
             {

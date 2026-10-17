@@ -20,6 +20,7 @@ namespace LOMSave2
         public const string PluginGuid = "com.nn.lomsave2";
         public const string PluginVersion = "2.0.6";
 
+        private ConfigEntry<bool> _hotkeysEnabled;
         private ConfigEntry<KeyboardShortcut> _quickSaveKey;
         private ConfigEntry<KeyboardShortcut> _quickLoadKey;
         private ConfigEntry<float> _replayTimeScale;
@@ -39,11 +40,16 @@ namespace LOMSave2
             // same protection as BepInEx's HideManagerGameObject option.
             gameObject.hideFlags |= HideFlags.HideAndDontSave;
             LomsRuntime.Log = Logger;
-            _quickSaveKey = Config.Bind("Hotkeys", "QuickSave", new KeyboardShortcut(KeyCode.F5), "快速存档");
-            _quickLoadKey = Config.Bind("Hotkeys", "QuickLoad", new KeyboardShortcut(KeyCode.F9), "快速读档");
+            _hotkeysEnabled = Config.Bind("Hotkeys", "Enabled", true,
+                "快捷键总开关；false 关闭本 MOD 全部快捷键，不影响游戏菜单存读档和自动验证");
+            _quickSaveKey = Config.Bind("Hotkeys", "QuickSave", new KeyboardShortcut(KeyCode.F5),
+                "快速存档键；可改为 F6 等键位或 F6 + LeftControl 组合键，填 None 单独关闭");
+            _quickLoadKey = Config.Bind("Hotkeys", "QuickLoad", new KeyboardShortcut(KeyCode.F9),
+                "快速读档键；可改为 F10 等键位或 F10 + LeftControl 组合键，填 None 单独关闭");
             _replayTimeScale = Config.Bind("Replay", "TimeScale", 50f, "回放速度倍率");
             _showOverlay = Config.Bind("Replay", "ShowOverlay", true, "回放期间显示遮罩");
-            _verifyKey = Config.Bind("Hotkeys", "Verify", new KeyboardShortcut(KeyCode.F8), "对比读档后的属性和状态");
+            _verifyKey = Config.Bind("Hotkeys", "Verify", new KeyboardShortcut(KeyCode.F8),
+                "手动验证键；可改为 F7 等键位或 F7 + LeftControl 组合键，填 None 单独关闭，不影响自动验证");
             _autoVerify = Config.Bind("Verification", "AutoCheck", true, "回放结束后自动对比保存时和当前状态");
             _replayTimeout = Config.Bind("Replay", "NoProgressTimeoutSeconds", 45f, "回放持续无进度时停止并解锁的真实秒数；交互和战斗暂停不计入");
             LomsReplayGuard.NoProgressTimeoutSeconds = _replayTimeout.Value;
@@ -70,7 +76,7 @@ namespace LOMSave2
 
         private void Start()
         {
-            Logger.LogInfo($"[Loms] Hotkeys ready: save={_quickSaveKey.Value}, load={_quickLoadKey.Value}, verify={_verifyKey.Value}");
+            Logger.LogInfo($"[Loms] Hotkeys ready: enabled={_hotkeysEnabled.Value}, save={_quickSaveKey.Value}, load={_quickLoadKey.Value}, verify={_verifyKey.Value}");
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -92,9 +98,12 @@ namespace LOMSave2
             LomsReplayGuard.Poll();
             LomsRuntime.Poll();
 
-            if (_quickSaveKey.Value.IsDown()) TryQuickSave();
-            if (_quickLoadKey.Value.IsDown()) TryQuickLoad();
-            if (_verifyKey.Value.IsDown()) TryVerify();
+            if (_hotkeysEnabled.Value)
+            {
+                if (_quickSaveKey.Value.IsDown()) TryQuickSave();
+                if (_quickLoadKey.Value.IsDown()) TryQuickLoad();
+                if (_verifyKey.Value.IsDown()) TryVerify();
+            }
         }
 
         private void LateUpdate()
@@ -111,7 +120,7 @@ namespace LOMSave2
                 Flash("请等回放完成后再验证");
                 return;
             }
-            LomsVerification.Verify(() => LomsRuntime.CaptureState());
+            LomsVerification.Verify(() => LomsRuntime.CaptureState(), "手动快捷键：" + _verifyKey.Value);
             ShowVerificationResult();
         }
 

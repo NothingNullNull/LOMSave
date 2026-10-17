@@ -68,7 +68,10 @@
 
 | 配置 | 默认值 / 用途 |
 | --- | --- |
-| `Hotkeys.QuickSave` / `QuickLoad` / `Verify` | F5 / F9 / F8 |
+| `Hotkeys.Enabled` | true，全部快捷键的总开关；false 全部关闭（2.0.6 新增，待发布） |
+| `Hotkeys.QuickSave` | F5，快速存档键；可修改，`None` 单独关闭 |
+| `Hotkeys.QuickLoad` | F9，快速读档键；可修改，`None` 单独关闭 |
+| `Hotkeys.Verify` | F8，手动验证键；可修改，`None` 单独关闭，自动验证仍由 `Verification.AutoCheck` 控制 |
 | `Replay.TimeScale` | 50，回放速度倍率，可自行调整 |
 | `Replay.ShowOverlay` | true，回放时用不透明黑幕遮住画面，保留进度提示 |
 | `Replay.FastPresentation` | true，回放时立即复用已缓存的人物和背景、完成剧情黑幕；关闭后保留原生资源及黑幕等待 |
@@ -76,7 +79,19 @@
 | `Verification.AutoCheck` | true，回放完成后自动检查 |
 | `Verification.ReportDirectory` | 验证报告目录 |
 
-更新 MOD 会保留已有配置。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段及战役等非剧情场景会显示游戏界面，返回剧情回放后恢复遮罩。`FastPresentation` 不跳过战斗结算或未加载的资源；已记录的剧情等待仍会在回放中跳过。
+修改快捷键：关闭游戏，用文本编辑器打开上述 `.cfg`，找到已有的 `[Hotkeys]` 段，修改对应值后保存并重启游戏。支持单键和组合键，例如：
+
+```ini
+[Hotkeys]
+Enabled = true
+QuickSave = F6
+QuickLoad = F10 + LeftControl
+Verify = None
+```
+
+这个例子使用 F6 保存，按住左 Ctrl 再按 F10 读档，并关闭手动验证快捷键。`Enabled = false` 可一次关闭所有快捷键，保留各自设置的键位，改回 `true` 即恢复。总开关从 2.0.6 起生效；2.0.5 可将三个键位分别设为 `None` 来全部关闭。关闭快捷键不影响游戏菜单的正常存读档和自动验证。不要新增重复的 `[Hotkeys]` 段，也建议避免与游戏或其他 MOD 的键位冲突。
+
+更新 MOD 会保留已有配置，缺失的总开关默认开启。旧配置若仍为 `TimeScale = 12`，关闭游戏后手动改成 `TimeScale = 50`。需要玩家操作的暂停阶段及战役等非剧情场景会显示游戏界面，返回剧情回放后恢复遮罩。`FastPresentation` 不跳过战斗结算或未加载的资源；已记录的剧情等待仍会在回放中跳过。
 
 回放异常或持续无进度时会停止回放，恢复正常速度和输入，并保留失败报告。此时禁止保存不完整状态；请重新读档，成功读取后恢复正常保存。
 
